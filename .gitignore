@@ -1,0 +1,6 @@
+**/__pycache__/
+data/ADL_Final_part*/
+models/*
+!models/.gitkeep
+results/*
+!results/.gitkeep
