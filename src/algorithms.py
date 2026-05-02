@@ -1,4 +1,5 @@
 from textwrap import dedent
+from .fuzz_llm.construct_prompts import construct_rp_pe_oc
 
 
 # --- MANDATORY ENTRY POINT for Official Evaluation ---
@@ -56,3 +57,12 @@ def deep_inception(toxic_prompt: str) -> str:
     """).strip()
 
     return template.format(prompt=toxic_prompt)
+
+def fuzzy_llm(toxic_prompt: str) -> str:
+    """
+    FUZZLLM: A Novel and Universal Fuzzing Framework for Discovering Jailbreak Vulnerabilities in LLMs
+    ref: https://arxiv.org/abs/2309.05274
+    """
+    modified_prompt = construct_rp_pe_oc(toxic_prompt)
+    return modified_prompt
+
