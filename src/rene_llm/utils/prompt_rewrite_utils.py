@@ -1,6 +1,6 @@
 import random
-from llm_completion_utils import chatCompletion
-from data_utils import remove_number_prefix
+from .llm_completion_utils import chatCompletion
+from .data_utils import remove_number_prefix
 
 
 # Six rewrite functions we used
@@ -16,8 +16,9 @@ def shortenSentence(args, sentence):
 
     model_output = chatCompletion(args.rewrite_model,
                                   messages, 
-                                  # args.temperature, 
-                                  random.uniform(0, 1), # If the prompt always is rewritten to be harmless, use random temperature instead of 0.
+                                  # args.temperature,
+                                  # random.uniform(0, 1), # If the prompt always is rewritten to be harmless, use random temperature instead of 0.
+                                  round(random.uniform(0, 1.0), 2), # for GLM model
                                   args.retry_times,
                                   args.round_sleep,
                                   args.fail_sleep,

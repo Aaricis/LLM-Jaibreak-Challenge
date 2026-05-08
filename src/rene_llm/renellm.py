@@ -1,29 +1,35 @@
+import os
 import random
-import argparse
+from argparse import Namespace
 
-from utils.prompt_rewrite_utils import shortenSentence, misrewriteSentence, changeOrder, addChar, languageMix, styleChange
-from utils.scenario_nest_utils import SCENARIOS
-from utils.harmful_classification_utils import harmful_classification
+from dotenv import load_dotenv
+
+from .utils.harmful_classification_utils import harmful_classification
+from .utils.prompt_rewrite_utils import shortenSentence, misrewriteSentence, changeOrder, addChar, languageMix, \
+    styleChange
+from .utils.scenario_nest_utils import SCENARIOS
 
 operations = [shortenSentence, misrewriteSentence, changeOrder, addChar, languageMix, styleChange]
 scenarios = SCENARIOS
 
-parser = argparse.ArgumentParser()
+# 自动加载 .env 文件
+load_dotenv()
 
-parser.add_argument('--rewrite_model', type=str, default="gpt-3.5-turbo", choices=["gpt-3.5-turbo", "gpt-4"], help='model uesd for rewriting the prompt')
-parser.add_argument('--judge_model', type=str, default="gpt-3.5-turbo", choices=["gpt-3.5-turbo", "gpt-4"], help='model uesd for harmful classification')
-parser.add_argument("--max_tokens", type=int, default=3584)
-parser.add_argument('--temperature', type=float, default=0, help='model temperature')
-parser.add_argument('--round_sleep', type=int, default=1, help='sleep time between every round')
-parser.add_argument('--fail_sleep', type=int, default=1, help='sleep time for fail response')
-parser.add_argument('--retry_times', type=int, default=1000, help='retry times when exception occurs')
-parser.add_argument('--save_suffix', type=str, default='normal')
-parser.add_argument("--gpt_api_key", required=True, type=str, default=None)
-parser.add_argument("--gpt_base_url", type=str, default=None)
+args = Namespace(
+    rewrite_model="glm-4-flash-250414",  # 改写模型
+    judge_model="glm-4-flash-250414",  # 审核模型
+    max_tokens=3584,
+    temperature=0,
+    round_sleep=1,
+    fail_sleep=1,
+    retry_times=1000,
+    save_suffix='normal',
+    gpt_api_key=os.environ.get("GLM_API_KEY"),  # 填入你的 API Key
+    gpt_base_url=os.environ.get("GLM_BASE_URL")  # 智谱端点，或 DeepSeek 的 https://api.deepseek.com/v1
+)
 
-args = parser.parse_args()
 
-def rewrite_and_nest(args, harm_behavior : str):
+def rewrite_and_nest(harm_behavior: str):
     """
     ReNeLLM: an automatic framework that lever ages LLMs themselves to generate effective jailbreak prompts.
     (1) Prompt Rewriting and (2) Scenario Nesting.

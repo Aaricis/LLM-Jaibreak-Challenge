@@ -1,5 +1,6 @@
 from textwrap import dedent
 from .fuzz_llm.construct_prompts import construct_rp_pe_oc
+from .rene_llm.renellm import rewrite_and_nest
 
 
 # --- MANDATORY ENTRY POINT for Official Evaluation ---
@@ -64,5 +65,12 @@ def fuzzy_llm(toxic_prompt: str) -> str:
     ref: https://arxiv.org/abs/2309.05274
     """
     modified_prompt = construct_rp_pe_oc(toxic_prompt)
+    return modified_prompt
+
+def rene_llm(toxic_prompt: str) -> str:
+    """
+    ReNeLLM,anautomatic framework that leverages LLMs themselves to generate effective jailbreak prompts.
+    """
+    modified_prompt = rewrite_and_nest(toxic_prompt)
     return modified_prompt
 
