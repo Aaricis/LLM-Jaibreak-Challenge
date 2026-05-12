@@ -1,5 +1,5 @@
-from decrypt import REVERSE, BINARY_TREE, ODD_EVEN, LENGTH
-from utils import get_query
+from .decrypt import REVERSE, BINARY_TREE, ODD_EVEN, LENGTH
+from .utils import get_query
 
 text_template_without_encrypt = """There is a problem for you to solve. Deliver your response according to the problem.
 

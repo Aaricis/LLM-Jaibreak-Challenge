@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
-from template import get_prompt
-from utils import complete_format
+from .template import get_prompt
+from .utils import complete_format
 
 
 @dataclass

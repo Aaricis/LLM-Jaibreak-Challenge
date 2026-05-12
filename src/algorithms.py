@@ -1,6 +1,7 @@
 from textwrap import dedent
 from .fuzz_llm.construct_prompts import construct_rp_pe_oc
 from .rene_llm.renellm import rewrite_and_nest
+from .code_chameleon.attack import attack
 
 
 # --- MANDATORY ENTRY POINT for Official Evaluation ---
@@ -74,3 +75,10 @@ def rene_llm(toxic_prompt: str) -> str:
     modified_prompt = rewrite_and_nest(toxic_prompt)
     return modified_prompt
 
+def code_chameleon(toxic_prompt: str) -> str:
+    """
+    CodeChameleon: Personalized Encryption Framework for Jailbreaking Large Language Models
+    """
+
+    modified_prompt = attack(toxic_prompt)
+    return modified_prompt
