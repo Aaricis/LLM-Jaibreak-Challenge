@@ -9,15 +9,17 @@ from openai import OpenAI
 from templates import templates
 from datasets import load_dataset, Dataset
 from dotenv import load_dotenv
+import re
 
 # 自动加载 .env 文件
 load_dotenv()
 
-# api_key = os.environ.get("DEEPSEEK_API_KEY")
-# api_base = os.environ.get("DEEPSEEK_BASE_URL")
+api_key = os.environ.get("DEEPSEEK_API_KEY")
+base_url = os.environ.get("DEEPSEEK_BASE_URL")
 
-api_key = os.environ.get("GLM_API_KEY")
-base_url = os.environ.get("GLM_BASE_URL")
+
+# api_key = os.environ.get("GLM_API_KEY")
+# base_url = os.environ.get("GLM_BASE_URL")
 
 def prompts_jsonl_to_list(path):
     """
@@ -278,8 +280,13 @@ class GPT_automation():
             seg = response.replace("'", "")
             trial += 1
             try:
-                parsing_tree_dictonary = json.loads(seg)
-                get_response = True
+                match = re.search(r'```json\s*(.*?)\s*```', seg, re.DOTALL)
+                if match:
+                    parsing_tree_dictonary = json.loads(match.group(1))
+                    get_response = True
+                else:
+                    parsing_tree_dictonary = json.loads(seg)
+                    get_response = True
             except:
                 get_response = False
 
@@ -289,66 +296,121 @@ class GPT_automation():
             'prompt': prompt
         }
 
-    def automate(self, prompts, templates, generate_mode, offset=0, total_number=520):
+    def automate(self, prompts, templates):
 
-        prompt_id = 0
-        for prompt in prompts:
-            prompt_id += 1
-            if prompt_id <= offset + total_number and prompt_id >= offset:
+        processed_count = 0
+        skipped_count = 0
 
-                if generate_mode == "harmless":
+        for idx, prompt in enumerate(prompts):
 
-                    self.process_harmless(prompt, self.data[prompt]["substitutable"], templates, generate_mode)
+            # ---------- Skip processed prompt ----------
+            if (
+                    prompt in self.data
+                    and "substitutable" in self.data[prompt]
+                    and "harmless" in self.data[prompt]
+                    and "synonym" in self.data[prompt]
+                    and "opposite" in self.data[prompt]
+            ):
+                skipped_count += 1
 
-                elif generate_mode == "opposite":
+                print(
+                    f"[Skip {skipped_count}] "
+                    f"already processed"
+                )
 
-                    self.process_opposite(prompt, self.data[prompt]["substitutable"], templates, generate_mode)
+                continue
 
-                elif generate_mode == "synonym":
+            processed_count += 1
 
-                    self.process_synonym(prompt, self.data[prompt]["substitutable"], templates, generate_mode)
+            prompt_id = len(self.data) + 1
 
-                elif generate_mode == "decomposition":
+            print(
+                f"\n[Processing #{processed_count}] "
+                f"Prompt ID: {prompt_id}"
+            )
 
-                    self.process_decomposition(prompt, prompt_id, templates, generate_mode)
+            try:
 
-                elif generate_mode == "joint":
+                # ---------- decomposition ----------
+                if (
+                        prompt not in self.data
+                        or "parsing_tree_dictionary" not in self.data[prompt]
+                ):
+                    self.process_decomposition(
+                        prompt,
+                        prompt_id,
+                        templates,
+                        "decomposition"
+                    )
 
-                    self.process_decomposition(prompt, prompt_id, templates, "decomposition")
-                    if not self.data[prompt]['substitutable']:
-                        parser = DrAttack_prompt_semantic_parser(self.data[prompt]["parsing_tree_dictionary"])
-                        parser.process_parsing_tree()
+                # ---------- parser ----------
+                parser = DrAttack_prompt_semantic_parser(
+                    self.data[prompt]["parsing_tree_dictionary"]
+                )
 
-                        self.data[prompt]["substitutable"] = parser.words_substitution
-                        self.data[prompt]["words"] = parser.words
-                        self.data[prompt]["words_level"] = parser.words_level
-                        self.data[prompt]["words_type"] = parser.words_type
+                parser.process_parsing_tree()
 
-                        self.process_synonym(prompt, self.data[prompt]["substitutable"], templates, "synonym")
-                        self.process_opposite(prompt, self.data[prompt]["substitutable"], templates, "opposite")
+                self.data[prompt]["substitutable"] = parser.words_substitution
+                self.data[prompt]["words"] = parser.words
+                self.data[prompt]["words_level"] = parser.words_level
+                self.data[prompt]["words_type"] = parser.words_type
 
-                        self.process_harmless(prompt, self.data[prompt]["substitutable"], templates, "harmless")
+                # ---------- synonym ----------
+                if "synonym" not in self.data[prompt]:
+                    self.process_synonym(
+                        prompt,
+                        self.data[prompt]["substitutable"],
+                        templates,
+                        "synonym"
+                    )
 
-                        print(f'Saving prompt {prompt_id}')
+                # ---------- opposite ----------
+                if "opposite" not in self.data[prompt]:
+                    self.process_opposite(
+                        prompt,
+                        self.data[prompt]["substitutable"],
+                        templates,
+                        "opposite"
+                    )
 
-                        self.save_data()
-                else:
-                    raise ValueError("Input generation mode not implemented!")
+                # ---------- harmless ----------
+                if "harmless" not in self.data[prompt]:
+                    self.process_harmless(
+                        prompt,
+                        self.data[prompt]["substitutable"],
+                        templates,
+                        "harmless"
+                    )
+
+                # ---------- save ----------
+                self.save_data()
+
+                print(
+                    f"[Saved] "
+                    f"Processed={processed_count} "
+                    f"Skipped={skipped_count}"
+                )
+
+            except Exception as e:
+
+                print(f"[ERROR] {e}")
+
+                self.save_data()
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="")
     parser.add_argument("--prompt_path", default="../data/advbench/harmful_behaviors.csv", type=str)
     parser.add_argument("--model", default="gpt-4-0613", type=str)
-    parser.add_argument("--generate_mode", default="joint", type=str)
+    # parser.add_argument("--generate_mode", default="joint", type=str)
     parser.add_argument("--save_path",
                         default='../attack_prompt_data/gpt_automated_processing_results/your_file_to_store_res.json',
                         type=str)
-    parser.add_argument("--offset", default=0, type=int)
-    parser.add_argument("--total_number", default=520, type=int)
+    # parser.add_argument("--offset", default=0, type=int)
+    # parser.add_argument("--total_number", default=520, type=int)
     args = parser.parse_args()
 
     prompts = prompts_jsonl_to_list(args.prompt_path)
 
     automation = GPT_automation(model=args.model, save_path=args.save_path)
-    automation.automate(prompts, templates, args.generate_mode, offset=args.offset, total_number=args.total_number)
+    automation.automate(prompts, templates)
