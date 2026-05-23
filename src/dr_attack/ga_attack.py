@@ -328,7 +328,7 @@ class DrAttack_random_search:
                 if self.words[idx] in self.harmless_mapping_dict:
                     vegetable_id += 1
                     self.word_mapping[self.harmless_mapping_dict[self.words[idx]]] = self.vegetables[vegetable_id]
-                    wordgame_sentence += f"'{self.vegetables[fruit_id]}: {self.harmless_mapping_dict[self.words[idx]]}'"
+                    wordgame_sentence += f"'{self.vegetables[vegetable_id]}: {self.harmless_mapping_dict[self.words[idx]]}'"
 
         self.wordgame_prefix = self.wordgame_template.replace("{wordgame sentence}", wordgame_sentence)
 
