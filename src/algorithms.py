@@ -2,6 +2,9 @@ from textwrap import dedent
 from .fuzz_llm.construct_prompts import construct_rp_pe_oc
 from .rene_llm.renellm import rewrite_and_nest
 from .code_chameleon.attack import attack
+from .dr_attack.ga_attack import DrAttack_random_search
+from .dr_attack.utils.GPTWrapper import worker
+from .dr_attack.configs.template import general_template, wordgame_template, demo_suffix_template, test_prefixes
 
 
 # --- MANDATORY ENTRY POINT for Official Evaluation ---
@@ -82,3 +85,25 @@ def code_chameleon(toxic_prompt: str) -> str:
 
     modified_prompt = attack(toxic_prompt)
     return modified_prompt
+
+
+def dr_attack(toxic_prompt: str) -> str:
+    """
+    DrAttack: Prompt Decomposition and Reconstruction Makes Powerful LLMs Jailbreakers
+    """
+    attacker = DrAttack_random_search(
+        attack_prompt=toxic_prompt,
+        prompt_info_path="src/dr_attack/attack_prompt_data/gpt_automated_processing_results/prompts_information.json",
+        worker=worker,
+        verb_sub=True,
+        noun_sub=True,
+        noun_wordgame=True,
+        suffix=True,
+        general_template=general_template,
+        demo_suffix_template=demo_suffix_template,
+        wordgame_template=wordgame_template,
+        test_prefixes=test_prefixes
+    )
+
+    rewritten = attacker.rewrite()
+    return rewritten
