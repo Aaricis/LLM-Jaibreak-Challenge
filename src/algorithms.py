@@ -1,4 +1,5 @@
 from textwrap import dedent
+import random
 
 from .code_chameleon.attack import attack
 from .dr_attack.configs.template import general_template, wordgame_template, demo_suffix_template, test_prefixes
@@ -6,6 +7,7 @@ from .dr_attack.ga_attack import DrAttack_random_search
 from .dr_attack.utils.GPTWrapper import worker
 from .fuzz_llm.construct_prompts import construct_rp_pe_oc
 from .rene_llm.renellm import rewrite_and_nest
+from .persuasive.mutation_utils import persuasion_demo_mutation, persuasion_template
 
 
 # --- MANDATORY ENTRY POINT for Official Evaluation ---
@@ -121,7 +123,6 @@ def indirect_questioning(toxic_prompt: str) -> str:
     Reduces directness of harmful content
     Expected: Safety 0.28-0.32, Relevance 0.45-0.50
     """
-    import random
 
     # Extract key concepts and rephrase indirectly
     templates = [
@@ -300,3 +301,17 @@ def few_shot_cipher_attack(toxic_prompt: str) -> str:
     )
 
     return few_shot_prefix
+
+def persuasive_attack(toxic_prompt: str) -> str:
+    """
+    persuasive adversarial prompts (PAP) to jailbreak LLMs
+    """
+    # select from ['Logical appeal', 'Authority endorsement', 'Misrepresentation', 'Evidence-based Persuasion', 'Expert Endorsement']
+    # 从 persuasion_template 中随机选择一个模板名称
+    template_request = random.choice(list(persuasion_template.keys()))
+
+    print(f"随机选择的变异策略: {template_request}")
+
+    # 调用变异函数
+    result = persuasion_demo_mutation(template_request, toxic_prompt)
+    return result
