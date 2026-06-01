@@ -10,6 +10,10 @@ api_key = os.environ.get("DEEPSEEK_API_KEY")
 base_url = os.environ.get("DEEPSEEK_BASE_URL")
 model = "deepseek-v4-flash"
 
+# api_key = os.environ.get("GLM_API_KEY")
+# base_url = os.environ.get("GLM_BASE_URL")
+# model =
+
 client = OpenAI(
     api_key=api_key,
     base_url=base_url  # 支持 DeepSeek 等第三方
@@ -214,36 +218,66 @@ Output the result in the following format (You need to keep the original detaile
 }
 
 
-def persuasion_demo_mutation(template_request, text):
+def persuasion_demo_mutation(template_request, text, max_retry=5):
     texmplate_idx = persuasion_template.keys()
+
     if template_request not in texmplate_idx:
         raise ValueError(f"template_request should be one of {texmplate_idx}")
+
     template_mutation = persuasion_template[template_request]
-    while True:
+
+    for attempt in range(max_retry):
+
         try:
-            # 修复：使用 .replace 代替 % 格式化，避免 text 中的 % 引发冲突
+
             prompt_content = template_mutation.replace("%s", text, 1)
+
+            print(f"[Attempt {attempt}] Before API call")
+
             response = client.chat.completions.create(
-                # model="gpt-4-1106-preview",
                 model=model,
                 messages=[
                     {
                         "role": "user",
-                        "content": prompt_content}
+                        "content": prompt_content
+                    }
                 ],
                 temperature=1,
                 max_tokens=256,
                 top_p=1,
                 frequency_penalty=0,
-                presence_penalty=0
+                presence_penalty=0,
+                timeout=30,
+                extra_body={"thinking": {"type": "disabled"}}
             )
-            results = extract_content("#mutated_text_with_same_specific_harmful_or_unlawful_intention: ",
-                                      response.choices[0].message.content)
-            if results != None:
-                break
-        except Exception as err:
-            print(f'Exception occurs when calling {model} for persuasive mutation:', err)
-            print('Will sleep for ten seconds before retry...')
-            time.sleep(10)
 
-    return results
+            print(f"[Attempt {attempt}] After API call")
+            # print(f"response = {response}")
+
+            content = response.choices[0].message.content
+
+            print("=" * 80)
+            print(f"content = {content}")
+            print("=" * 80)
+
+            print(f"[Attempt {attempt}] Before extract")
+
+            results = extract_content(
+                "#mutated_text_with_same_specific_harmful_or_unlawful_intention: ",
+                content
+            )
+
+            print(f"[Attempt {attempt}] After extract")
+
+            if results is not None:
+                return results
+
+            print(f"[Attempt {attempt}] results is None")
+
+        except Exception as err:
+
+            print(f"[Attempt {attempt}] Exception:", err)
+
+            time.sleep(5)
+
+    raise RuntimeError("Failed after max_retry")
