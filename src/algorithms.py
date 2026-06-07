@@ -9,6 +9,7 @@ from .fuzz_llm.construct_prompts import construct_rp_pe_oc
 from .persuasive.mutation_utils import persuasion_demo_mutation, persuasion_template
 from .rene_llm.renellm import rewrite_and_nest
 from .utils import initialize_guard, get_safety_score
+from .persona_prompts.build_prompts import persona_pap_attack
 
 
 # --- MANDATORY ENTRY POINT for Official Evaluation ---
@@ -331,6 +332,7 @@ initialize_guard(guard_model_path)
 
 def persuasive_attack_multi(toxic_prompt: str) -> str:
     """
+    persuasive adversarial prompts (PAP) + multiple tries
     对每条 toxic prompt 尝试全部说服技巧，返回 SR 最高的改写结果。
 
     策略：
@@ -367,4 +369,12 @@ def persuasive_attack_multi(toxic_prompt: str) -> str:
 
     # 修复：使用 best_technique 代替 technique
     print(f"最终选择: SR={best_score}, 技巧={best_technique}")
+    return best_prompt
+
+def pap_multi_with_persona_prompt(toxic_prompt: str) -> str:
+    """
+    persuasive adversarial prompts (PAP) + multiple tries + persona_prompt
+    ref: Zhang et al., "Enhancing Jailbreak Attacks on LLMs via Persona Prompts", arXiv:2507.22171, 2025.
+    """
+    best_prompt = persona_pap_attack(toxic_prompt)
     return best_prompt
