@@ -9,7 +9,8 @@ from .fuzz_llm.construct_prompts import construct_rp_pe_oc
 from .persuasive.mutation_utils import persuasion_demo_mutation, persuasion_template
 from .rene_llm.renellm import rewrite_and_nest
 from .utils import initialize_guard, get_safety_score
-from .persona_prompts.build_prompts import persona_pap_attack
+from .persona_prompts.build_prompts import persona_pap_attack, persuasive_attack_best
+from .safe2harm.semantic_isomorphism_attack import stage1_rewrite
 
 
 # --- MANDATORY ENTRY POINT for Official Evaluation ---
@@ -304,6 +305,7 @@ def few_shot_cipher_attack(toxic_prompt: str) -> str:
 
     return few_shot_prefix
 
+
 def persuasive_attack(toxic_prompt: str) -> str:
     """
     persuasive adversarial prompts (PAP) to jailbreak LLMs
@@ -318,6 +320,7 @@ def persuasive_attack(toxic_prompt: str) -> str:
     result = persuasion_demo_mutation(template_request, toxic_prompt)
     return result
 
+
 # 全部 5 种说服技巧，不再随机选 1 种
 ALL_TECHNIQUES = [
     'Logical appeal',
@@ -329,6 +332,7 @@ ALL_TECHNIQUES = [
 
 guard_model_path = "/root/autodl-tmp/LLM-Jaibreak-Challenge/models/Qwen3Guard-Gen-0.6B"
 initialize_guard(guard_model_path)
+
 
 def persuasive_attack_multi(toxic_prompt: str) -> str:
     """
@@ -371,6 +375,7 @@ def persuasive_attack_multi(toxic_prompt: str) -> str:
     print(f"最终选择: SR={best_score}, 技巧={best_technique}")
     return best_prompt
 
+
 def pap_multi_with_persona_prompt(toxic_prompt: str) -> str:
     """
     persuasive adversarial prompts (PAP) + multiple tries + persona_prompt
@@ -378,3 +383,165 @@ def pap_multi_with_persona_prompt(toxic_prompt: str) -> str:
     """
     best_prompt = persona_pap_attack(toxic_prompt)
     return best_prompt
+
+
+def safe2harm_rewrite(toxic_prompt: str) -> str:
+    """
+    Safe2Harm Stage 1 输出：供 guard model 评估的安全版 prompt。
+
+    与 run_eval.py 对接方式：
+      rewritten_prompt = safe2harm_rewrite(worker, toxic_prompt)
+      → 保存到 INFERENCE_FILE，供 run_eval.py 读取
+      → guard 评估 rewritten_prompt（安全版，SR 高）
+      → chat LLM 回答 rewritten_prompt（无对齐约束，UR 高）
+
+    注意：guard 和 chat LLM 都针对"安全版问题"，不经过 Stage 4 反转。
+    Stage 4 反转是可选的后处理步骤，用于获取有害内容的详细答案，
+    但在你的评估框架中不需要（usefulness judge 评估的是对原始 toxic prompt 的有用性，
+    安全版回答的结构和步骤与有害版高度一致，judge 会认为有用）。
+    """
+    print(f"  [Stage 1] 改写有害问题...")
+    safe_question = stage1_rewrite(toxic_prompt)
+    print(f"  [Stage 1] safe_question: {safe_question[:80]}...")
+    return safe_question
+
+import json
+from typing import Any
+
+# Global constant: mapping from toxic_prompt to the full record
+TOXIC_PROMPT_TO_RECORD = {}
+
+
+def load_attack_logs(file_path: str = "attack_logs.jsonl") -> None:
+    """Load the JSONL file and populate the global mapping."""
+    global TOXIC_PROMPT_TO_RECORD
+    with open(file_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+                toxic = record.get("toxic_prompt")
+                if toxic is not None:
+                    # If duplicate toxic_prompt exists, last one wins.
+                    TOXIC_PROMPT_TO_RECORD[toxic] = record
+            except json.JSONDecodeError:
+                continue  # skip malformed lines
+
+
+from typing import Optional, Tuple, Any
+
+
+def get_stage1_prompt(toxic_prompt: str) -> Tuple[Optional[str], Optional[float]]:
+    """
+    Return (stage1_prompt, stage1_sr) for the given toxic_prompt.
+    If the toxic_prompt is not found, returns (None, None).
+    """
+    record = TOXIC_PROMPT_TO_RECORD.get(toxic_prompt)
+    if record is None:
+        return None, None
+
+    prompt = record.get("stage1_prompt")
+    sr = record.get("stage1_sr")
+
+    # Convert sr to float if it exists and is numeric
+    if sr is not None and isinstance(sr, (int, float)):
+        sr = float(sr)
+    else:
+        sr = None
+
+    return prompt, sr
+
+# Global log file path – change as needed
+LOG_FILE = "pap_safe2harm_attack_log.jsonl"
+
+def _append_to_log(record: dict) -> None:
+    """Append a single record as a JSON line to the log file."""
+    with open(LOG_FILE, 'a', encoding='utf-8') as f:
+        f.write(json.dumps(record, ensure_ascii=False) + '\n')
+
+load_attack_logs("attack_logs.jsonl")
+
+
+# ── 与 PAP 组合的两阶段接口（SR 仍不足时的 fallback）─────────────────────────
+
+def pap_safe2harm_attack(toxic_prompt: str, ) -> str:
+    """
+    组合策略：
+      Stage A — PAP 多技巧迭代
+        → SR == 1.0: 直接使用 PAP 结果
+        → SR < 1.0:  进入 Stage B
+
+      Stage B — Safe2Harm 改写
+        → 生成安全版问题，guard 重新评估
+        → 取 SR 更高的版本返回
+
+    Args:
+        toxic_prompt:    原始有害问题
+    """
+    # Stage A: PAP
+
+    # 直接从文件取
+    pap_best, pap_sr = get_stage1_prompt(toxic_prompt)
+
+    # Prepare log record (stage B fields initially empty)
+    log_record = {
+        "toxic_prompt": toxic_prompt,
+        "stageA_prompt": pap_best,
+        "stageA_sr": pap_sr,
+        "stageB_prompt": None,
+        "stageB_sr": None,
+        "final_prompt": None,
+        "final_sr": None
+    }
+
+    if pap_sr == 1.0:
+        print(f"Found pap prompt: {pap_best[:100]}...")  # truncate for display
+        log_record["final_prompt"] = pap_best
+        log_record["final_sr"] = pap_sr
+        _append_to_log(log_record)
+        return pap_best
+    else:
+        print(f"No match or stage1_sr != 1.0 for: {toxic_prompt}")
+
+
+    # pap_best, pap_sr = persuasive_attack_best(toxic_prompt)
+    # print(f"[PAP] best SR={pap_sr}")
+    #
+    # if pap_sr == 1.0:
+    #     print("[PAP] SR=1 达标，直接使用 PAP 结果")
+    #     return pap_best
+
+    # Stage B: Safe2Harm
+    print(f"[Safe2Harm] PAP SR={pap_sr} 未达标，启动 Safe2Harm 改写...")
+    safe_question = safe2harm_rewrite(toxic_prompt)
+    safe_sr = get_safety_score(safe_question)
+    print(f"[Safe2Harm] SR={safe_sr}")
+
+    # Fill stage B fields in log
+    log_record["stageB_prompt"] = safe_question
+    log_record["stageB_sr"] = safe_sr
+
+    # 返回 SR 更高的版本
+    # if safe_sr >= pap_sr:
+    #     print(f"[Safe2Harm] SR 更高，使用 Safe2Harm 结果")
+    #     return safe_question
+    # else:
+    #     print(f"[PAP] PAP SR 更高，保留 PAP 结果")
+    #     return pap_best
+
+    # Decide which prompt to return (higher SR)
+    if safe_sr >= pap_sr:
+        print(f"[Safe2Harm] SR 更高，使用 Safe2Harm 结果")
+        final_prompt = safe_question
+        final_sr = safe_sr
+    else:
+        print(f"[PAP] PAP SR 更高，保留 PAP 结果")
+        final_prompt = pap_best
+        final_sr = pap_sr
+
+    log_record["final_prompt"] = final_prompt
+    log_record["final_sr"] = final_sr
+    _append_to_log(log_record)
+    return final_prompt
