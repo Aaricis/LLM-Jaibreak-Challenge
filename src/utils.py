@@ -26,6 +26,20 @@ def initialize_guard(safety_model_id: str):
 
     print("Safety Guard model initialized successfully.")
 
+def initialize_chatlm(chat_model_id: str):
+    global chatlm_tokenizer, chatlm_model
+
+    # --- Additional ChatLM Initialization ---
+    print("Initializing ChatLM...")
+    chatlm_tokenizer = AutoTokenizer.from_pretrained(chat_model_id)
+    chatlm_model = AutoModelForCausalLM.from_pretrained(
+        chat_model_id,
+        torch_dtype=dtype,
+        device_map=device
+    )
+
+    print("ChatLM initialized successfully.")
+
 
 def get_safety_score(rewritten_prompt: str) -> float:
     """
@@ -86,3 +100,34 @@ def get_safety_score(rewritten_prompt: str) -> float:
     else:
         print(f'[Unexpected Judge Result]: {raw_decision}')
         return 0.0
+
+def generate_response(rewritten_prompt: str) -> str:
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": rewritten_prompt}
+    ]
+
+    inputs = chatlm_tokenizer.apply_chat_template(
+        messages,
+        add_generation_prompt=True,
+        return_tensors="pt",
+        return_dict=True
+    ).to(device)
+
+    outputs = chatlm_model.generate(
+        input_ids=inputs["input_ids"],
+        attention_mask=inputs["attention_mask"],
+        max_new_tokens=1024,
+        do_sample=True,
+        top_p=0.9,
+        temperature=0.7,
+        pad_token_id=chatlm_tokenizer.pad_token_id
+    )
+
+    model_response_ids = outputs[0][inputs["input_ids"].shape[1]:]
+    model_response = chatlm_tokenizer.decode(
+        model_response_ids,
+        skip_special_tokens=True
+    ).strip()
+
+    return model_response

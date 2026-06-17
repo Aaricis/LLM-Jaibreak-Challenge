@@ -11,6 +11,8 @@ from .rene_llm.renellm import rewrite_and_nest
 from .utils import initialize_guard, get_safety_score
 from .persona_prompts.build_prompts import persona_pap_attack, persuasive_attack_best
 from .safe2harm.semantic_isomorphism_attack import stage1_rewrite
+from .fitd.fitd_rewrite import fitd_rewriter
+from .fitd.utils import deepseek_worker
 
 
 # --- MANDATORY ENTRY POINT for Official Evaluation ---
@@ -414,6 +416,7 @@ TOXIC_PROMPT_TO_RECORD = {}
 
 def load_attack_logs(file_path: str = "attack_logs.jsonl") -> None:
     """Load the JSONL file and populate the global mapping."""
+    print(f"Load log from {file_path}")
     global TOXIC_PROMPT_TO_RECORD
     with open(file_path, 'r', encoding='utf-8') as f:
         for line in f:
@@ -454,14 +457,14 @@ def get_stage1_prompt(toxic_prompt: str) -> Tuple[Optional[str], Optional[float]
     return prompt, sr
 
 # Global log file path – change as needed
-LOG_FILE = "pap_safe2harm_attack_log.jsonl"
+# LOG_FILE = "pap_safe2harm_attack_log.jsonl"
 
 def _append_to_log(record: dict) -> None:
     """Append a single record as a JSON line to the log file."""
     with open(LOG_FILE, 'a', encoding='utf-8') as f:
         f.write(json.dumps(record, ensure_ascii=False) + '\n')
 
-load_attack_logs("attack_logs.jsonl")
+# load_attack_logs("attack_logs.jsonl")
 
 
 # ── 与 PAP 组合的两阶段接口（SR 仍不足时的 fallback）─────────────────────────
@@ -545,3 +548,146 @@ def pap_safe2harm_attack(toxic_prompt: str, ) -> str:
     log_record["final_sr"] = final_sr
     _append_to_log(log_record)
     return final_prompt
+
+def fitd_attack(toxic_prompt: str) -> str:
+    prompt = fitd_rewriter(deepseek_worker, toxic_prompt)
+    return prompt
+
+# ── 三阶段组合接口（PAP + Safe2Harm + FITD）──────────────────────────────────
+
+LOG_FILE = "fitd_attack_log.jsonl"
+
+load_attack_logs("pap_safe2harm_attack_log.jsonl")
+
+from typing import Optional, Dict, Any
+
+def get_safe2harm_record(toxic_prompt: str) -> Optional[Dict[str, Any]]:
+    """
+    根据 toxic_prompt 查找并返回对应的完整 record 记录。
+
+    Args:
+        toxic_prompt: 原始有害问题
+
+    Returns:
+        完整的 record 字典（包含 final_prompt、final_sr 等所有字段），
+        未找到时返回 None
+    """
+    return TOXIC_PROMPT_TO_RECORD.get(toxic_prompt)
+
+def pap_safe2harm_fitd_attack(toxic_prompt: str) -> str:
+    """
+    三阶段 fallback：
+      Stage 1 — PAP（覆盖 ~82% prompt）
+      Stage 2 — Safe2Harm Stage 1
+      Stage 3 — FITD with SSP + Re-Align（源代码模板）
+    """
+
+    # 直接读取log
+    record = get_safe2harm_record(toxic_prompt)
+    stageA_sr = float(record.get("stageA_sr"))
+    stageA_prompt = record.get("stageA_prompt")
+
+    stageB_sr_raw = record.get("stageB_sr")
+    stageB_sr = float(stageB_sr_raw) if stageB_sr_raw is not None else 0.0
+    stageB_prompt = record.get("stageB_prompt")
+
+    if stageA_sr == 1.0 and stageA_prompt:
+        print(f"Found best prompt stageA_prompt = {stageA_prompt[:100]}...")  # truncate
+        return stageA_prompt
+
+    if stageB_sr == 1.0 and stageB_prompt:
+        print(f"Found best prompt stageB_prompt = {stageB_prompt[:100]}...")  # truncate
+        return stageB_prompt
+
+
+    # pap_best, pap_sr = persuasive_attack_best(toxic_prompt)
+    # print(f"[Stage 1 PAP] SR={pap_sr}")
+    # if pap_sr == 1.0:
+    #     return pap_best
+    #
+    # safe_q = safe2harm_rewrite(toxic_prompt)
+    # safe_sr = get_safety_score(safe_q)
+    # print(f"[Stage 2 Safe2Harm] SR={safe_sr}")
+    # if safe_sr == 1.0:
+    #     return safe_q
+
+    print(f"[Stage 3 FITD]，启动 FITD...")
+    fitd_result = fitd_rewriter(deepseek_worker, toxic_prompt, max_retries=3, max_ssp=2)
+    fitd_sr = get_safety_score(fitd_result)
+    print(f"[Stage 3 FITD] SR={fitd_sr}")
+
+    candidates = [
+        (stageA_prompt, stageA_sr),
+        (stageB_prompt, stageB_sr),
+        (fitd_result, fitd_sr),
+    ]
+
+    # 过滤掉 prompt 为 None 或空字符串的候选
+    valid_candidates = [
+        (prompt, sr) for prompt, sr in candidates
+        if prompt is not None and str(prompt).strip() != ""
+    ]
+
+    if not valid_candidates:
+        # 全部无效时的兜底处理
+        best_prompt = toxic_prompt  # 或 None，根据业务需求
+        best_sr = -1.0
+    else:
+        best_prompt, best_sr = max(valid_candidates, key=lambda x: x[1])
+
+    log_record = {
+        "toxic_prompt": toxic_prompt,
+        "stageA_prompt": stageA_prompt,
+        "stageA_sr": stageA_sr,
+        "stageB_prompt": stageB_prompt,
+        "stageB_sr": stageB_sr,
+        "fitd_prompt": fitd_result,
+        "fitd_sr": fitd_sr,
+        "best_prompt": best_prompt,
+        "best_sr": best_sr
+    }
+    _append_to_log(log_record)
+    return best_prompt
+
+
+# def pap_safe2harm_fitd_attack(toxic_prompt: str,) -> str:
+#     """
+#     三阶段 fallback：
+#       Stage 1 — PAP
+#       Stage 2 — Safe2Harm
+#       Stage 3 — FITD
+#     """
+#     # Stage 1: PAP
+#     pap_best, pap_sr = persuasive_attack_best(toxic_prompt)
+#     print(f"[Stage 1 PAP] SR={pap_sr}")
+#
+#     # Stage 2: Safe2Harm
+#     safe_q, safe_sr = safe2harm_rewrite(toxic_prompt)
+#     print(f"[Stage 2 Safe2Harm] SR={safe_sr}")
+#
+#     # Stage 3: FITD
+#     print(f"[Stage 3 FITD] PAP SR={pap_sr}, Safe2Harm SR={safe_sr}，启动 FITD...")
+#     fitd_result, fitd_sr = fitd_rewriter(worker, toxic_prompt, max_retries=3, max_ssp=2)
+#     print(f"[Stage 3 FITD] SR={fitd_sr}")
+#
+#     # 收集所有候选，过滤无效 prompt
+#     candidates = [
+#         (pap_best, pap_sr),
+#         (safe_q, safe_sr),
+#         (fitd_result, fitd_sr),
+#     ]
+#
+#     valid_candidates = [
+#         (prompt, sr) for prompt, sr in candidates
+#         if prompt is not None and str(prompt).strip() != ""
+#     ]
+#
+#     if not valid_candidates:
+#         print("[Warning] 所有改写结果均为空，返回原始 toxic_prompt")
+#         return toxic_prompt
+#
+#     # 选择 SR 最高的有效候选
+#     best_prompt, best_sr = max(valid_candidates, key=lambda x: x[1])
+#     print(f"[Final] 选择 SR={best_sr} 的 prompt")
+#
+#     return best_prompt
