@@ -14,6 +14,7 @@ from .safe2harm.semantic_isomorphism_attack import stage1_rewrite
 from .fitd.fitd_rewrite import fitd_rewriter
 from .fitd.utils import deepseek_worker
 from .past_tense.reformulate import reformulate_past_tense
+from .rts_attack.rts import rts_attack_rewrite, worker, crime_report
 
 
 # --- MANDATORY ENTRY POINT for Official Evaluation ---
@@ -743,6 +744,112 @@ def past_tense_attack(toxic_prompt: str) -> str:
         "all_attempts": all_attempts
     }
     _append_to_log("past_tense_log.jsonl", log_record)
+
+    print(f"[Final] 最优 SR = {best_sr}，返回最佳 prompt")
+    return best_prompt if best_prompt else toxic_prompt
+
+def rts_attack(toxic_prompt: str) -> str:
+
+    best_prompt = None
+    best_sr = -1.0
+    all_attempts = []  # 记录所有尝试，用于日志
+
+    for attempt in range(20):
+        past_tense_prompt = rts_attack_rewrite(toxic_prompt, worker)
+        pt_sr = get_safety_score(past_tense_prompt)
+        print(f"[Attempt {attempt + 1}/20] SR = {pt_sr}")
+
+        # 记录本次尝试
+        attempt_record = {
+            "attempt": attempt + 1,
+            "past_tense_prompt": past_tense_prompt,
+            "pt_sr": pt_sr
+        }
+        all_attempts.append(attempt_record)
+
+        # 更新最优结果
+        if pt_sr > best_sr:
+            best_sr = pt_sr
+            best_prompt = past_tense_prompt
+
+        # 如果达到满分，提前结束
+        if best_sr == 1.0:
+            print(f"[Attempt {attempt + 1}] 达到 SR=1.0，提前结束")
+            break
+
+    # 构造日志记录
+    log_record = {
+        "toxic_prompt": toxic_prompt,
+        "best_prompt": best_prompt,
+        "best_sr": best_sr,
+        "total_attempts": len(all_attempts),
+        "all_attempts": all_attempts
+    }
+    _append_to_log("rts_attack_log.jsonl", log_record)
+
+    print(f"[Final] 最优 SR = {best_sr}，返回最佳 prompt")
+    return best_prompt if best_prompt else toxic_prompt
+
+# past_tense_map = load_attack_logs("past_tense_log.jsonl")
+def past_tense_with_crime_report(toxic_prompt: str) -> str:
+    """
+        思路:用 Past Tense 改写(已验证 relevance=0.57,信息零损耗)作为
+        Stage 2 的输入素材,而不是先做 RTS-Attack 的 intent extraction
+        (该步骤在你的 hard case 上可能丢失了关键细节)。
+
+        保留 RTS-Attack 论文验证过的 "Crime News Report" 体裁的绕过效果
+        (arXiv:2510.01223 Table 7: Crime News Report ASR 94% > Myth 86% > Sci-Fi 84%),
+        但用更"保细节"的方式构造素材。
+    """
+
+    # record = past_tense_map.get(toxic_prompt)
+    # best_sr = float(record.get("best_sr"))
+    # past_tense = record.get("best_prompt")
+    # if best_sr == 1.0:
+    #     print("Using past tense prompt")
+    #     return past_tense
+
+    # Step 1: 沿用已验证有效的 Past Tense 改写(不做任何抽象/提取)
+    past_tense = reformulate_past_tense(toxic_prompt)
+
+    # Step 2: 直接把完整的 past-tense 版本作为新闻报道的素材主体,
+    # 而不是先提取出一个抽象 intent 再生成新闻
+    best_prompt = None
+    best_sr = -1.0
+    all_attempts = []  # 记录所有尝试，用于日志
+
+    for attempt in range(20):
+        past_tense_prompt = crime_report(past_tense, worker)
+        pt_sr = get_safety_score(past_tense_prompt)
+        print(f"[Attempt {attempt + 1}/20] SR = {pt_sr}")
+
+        # 记录本次尝试
+        attempt_record = {
+            "attempt": attempt + 1,
+            "past_tense_prompt": past_tense_prompt,
+            "pt_sr": pt_sr
+        }
+        all_attempts.append(attempt_record)
+
+        # 更新最优结果
+        if pt_sr > best_sr:
+            best_sr = pt_sr
+            best_prompt = past_tense_prompt
+
+        # 如果达到满分，提前结束
+        if best_sr == 1.0:
+            print(f"[Attempt {attempt + 1}] 达到 SR=1.0，提前结束")
+            break
+
+    # 构造日志记录
+    log_record = {
+        "toxic_prompt": toxic_prompt,
+        "best_prompt": best_prompt,
+        "best_sr": best_sr,
+        "total_attempts": len(all_attempts),
+        "all_attempts": all_attempts
+    }
+    _append_to_log("past_tense_crime_log.jsonl", log_record)
 
     print(f"[Final] 最优 SR = {best_sr}，返回最佳 prompt")
     return best_prompt if best_prompt else toxic_prompt
