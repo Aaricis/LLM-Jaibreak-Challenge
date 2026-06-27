@@ -853,3 +853,98 @@ def past_tense_with_crime_report(toxic_prompt: str) -> str:
 
     print(f"[Final] 最优 SR = {best_sr}，返回最佳 prompt")
     return best_prompt if best_prompt else toxic_prompt
+
+# crime_map =  load_attack_logs("past_tense_crime_log.jsonl")
+def past_tense_with_crime_report_v2(toxic_prompt: str) -> str:
+    # record = past_tense_map.get(toxic_prompt)
+    # pt_sr = float(record.get("best_sr"))
+    # pt_prompt = record.get("best_prompt")
+
+    pt_prompt = reformulate_past_tense(toxic_prompt)
+    pt_sr = get_safety_score(pt_prompt) if pt_prompt else 0.0
+
+    if pt_sr == 1.0:
+        print("Using past tense prompt")
+        log_record = {
+            "toxic_prompt": toxic_prompt,
+            "best_prompt": pt_prompt,
+            "best_sr": pt_sr,
+            "source": "past_tense"
+        }
+        _append_to_log("past_tense_crime_v2_log.jsonl", log_record)
+        return pt_prompt
+
+    # record1 = crime_map.get(toxic_prompt)
+    # cr_prompt = record1.get("best_prompt")
+    # cr_sr = float(record1.get("best_sr"))
+
+    cr_prompt = crime_report(toxic_prompt, worker)
+    cr_sr = get_safety_score(cr_prompt) if cr_prompt else 0.0
+
+    # 关键修复：取较优结果，而不是无条件用 CR 覆盖 PT
+    if cr_sr >= pt_sr:
+        log_record = {
+            "toxic_prompt": toxic_prompt,
+            "best_prompt": cr_prompt,
+            "best_sr": cr_sr,
+            "source": "crime_report"
+        }
+        _append_to_log("past_tense_crime_v2_log.jsonl", log_record)
+        return cr_prompt
+
+    else:
+        log_record = {
+            "toxic_prompt": toxic_prompt,
+            "best_prompt": pt_prompt,
+            "best_sr": pt_sr,
+            "source": "past_tense"
+        }
+        _append_to_log("past_tense_crime_v2_log.jsonl", log_record)
+        return pt_prompt
+
+def past_tense_with_targeted_rescue(toxic_prompt: str) -> str:
+    # record = past_tense_map.get(toxic_prompt)
+    # pt_sr = float(record.get("best_sr"))
+    # pt_prompt = record.get("best_prompt")
+
+    pt_prompt = reformulate_past_tense(toxic_prompt)
+    pt_sr = get_safety_score(pt_prompt) if pt_prompt else 0.0
+
+    if pt_sr > 0.0:
+        print("Using past tense prompt")
+        log_record = {
+            "toxic_prompt": toxic_prompt,
+            "best_prompt": pt_prompt,
+            "best_sr": pt_sr,
+            "source": "past_tense"
+        }
+        _append_to_log("past_tense_rescue_log.jsonl", log_record)
+        return pt_prompt
+
+    # record1 = crime_map.get(toxic_prompt)
+    # cr_prompt = record1.get("best_prompt")
+    # cr_sr = float(record1.get("best_sr"))
+
+    cr_prompt = crime_report(toxic_prompt, worker)
+    cr_sr = get_safety_score(cr_prompt) if cr_prompt else 0.0
+
+    # 关键修复：取较优结果，而不是无条件用 CR 覆盖 PT
+    if cr_sr > pt_sr:
+        log_record = {
+            "toxic_prompt": toxic_prompt,
+            "best_prompt": cr_prompt,
+            "best_sr": cr_sr,
+            "source": "crime_report"
+        }
+        _append_to_log("past_tense_crime_v2_log.jsonl", log_record)
+        return cr_prompt
+
+    else:
+        log_record = {
+            "toxic_prompt": toxic_prompt,
+            "best_prompt": pt_prompt,
+            "best_sr": pt_sr,
+            "source": "past_tense"
+        }
+        _append_to_log("past_tense_crime_v2_log.jsonl", log_record)
+        return pt_prompt
