@@ -409,10 +409,12 @@ def safe2harm_rewrite(toxic_prompt: str) -> str:
     print(f"  [Stage 1] safe_question: {safe_question[:80]}...")
     return safe_question
 
+
 import json
 from typing import Any
 
 TOXIC_PROMPT_TO_RECORD = {}
+
 
 def load_attack_logs(file_path: str = "attack_logs.jsonl") -> dict[Any, Any]:
     """Load the JSONL file and populate the global mapping."""
@@ -432,6 +434,7 @@ def load_attack_logs(file_path: str = "attack_logs.jsonl") -> dict[Any, Any]:
             except json.JSONDecodeError:
                 continue  # skip malformed lines
     return toxic_prompt_to_record
+
 
 from typing import Optional, Tuple, Any
 
@@ -456,6 +459,7 @@ def get_stage1_prompt(toxic_prompt: str) -> Tuple[Optional[str], Optional[float]
 
     return prompt, sr
 
+
 # Global log file path – change as needed
 # LOG_FILE = "pap_safe2harm_attack_log.jsonl"
 
@@ -463,6 +467,7 @@ def _append_to_log(log_file, record: dict) -> None:
     """Append a single record as a JSON line to the log file."""
     with open(log_file, 'a', encoding='utf-8') as f:
         f.write(json.dumps(record, ensure_ascii=False) + '\n')
+
 
 # load_attack_logs("attack_logs.jsonl")
 
@@ -508,7 +513,6 @@ def pap_safe2harm_attack(toxic_prompt: str, ) -> str:
     else:
         print(f"No match or stage1_sr != 1.0 for: {toxic_prompt}")
 
-
     # pap_best, pap_sr = persuasive_attack_best(toxic_prompt)
     # print(f"[PAP] best SR={pap_sr}")
     #
@@ -549,9 +553,11 @@ def pap_safe2harm_attack(toxic_prompt: str, ) -> str:
     _append_to_log(log_record)
     return final_prompt
 
+
 def fitd_attack(toxic_prompt: str) -> str:
     prompt = fitd_rewriter(deepseek_worker, toxic_prompt)
     return prompt
+
 
 # ── 三阶段组合接口（PAP + Safe2Harm + FITD）──────────────────────────────────
 
@@ -560,6 +566,7 @@ LOG_FILE = "fitd_attack_log.jsonl"
 # load_attack_logs("pap_safe2harm_attack_log.jsonl")
 
 from typing import Optional, Dict, Any
+
 
 def get_safe2harm_record(toxic_prompt: str) -> Optional[Dict[str, Any]]:
     """
@@ -573,6 +580,7 @@ def get_safe2harm_record(toxic_prompt: str) -> Optional[Dict[str, Any]]:
         未找到时返回 None
     """
     return TOXIC_PROMPT_TO_RECORD.get(toxic_prompt)
+
 
 def pap_safe2harm_fitd_attack(toxic_prompt: str) -> str:
     """
@@ -598,7 +606,6 @@ def pap_safe2harm_fitd_attack(toxic_prompt: str) -> str:
     if stageB_sr == 1.0 and stageB_prompt:
         print(f"Found best prompt stageB_prompt = {stageB_prompt[:100]}...")  # truncate
         return stageB_prompt
-
 
     # pap_best, pap_sr = persuasive_attack_best(toxic_prompt)
     # print(f"[Stage 1 PAP] SR={pap_sr}")
@@ -743,13 +750,13 @@ def past_tense_attack(toxic_prompt: str) -> str:
         "total_attempts": len(all_attempts),
         "all_attempts": all_attempts
     }
-    _append_to_log("past_tense_log.jsonl", log_record)
+    # _append_to_log("past_tense_log.jsonl", log_record)
 
     print(f"[Final] 最优 SR = {best_sr}，返回最佳 prompt")
     return best_prompt if best_prompt else toxic_prompt
 
-def rts_attack(toxic_prompt: str) -> str:
 
+def rts_attack(toxic_prompt: str) -> str:
     best_prompt = None
     best_sr = -1.0
     all_attempts = []  # 记录所有尝试，用于日志
@@ -789,6 +796,7 @@ def rts_attack(toxic_prompt: str) -> str:
 
     print(f"[Final] 最优 SR = {best_sr}，返回最佳 prompt")
     return best_prompt if best_prompt else toxic_prompt
+
 
 # past_tense_map = load_attack_logs("past_tense_log.jsonl")
 def past_tense_with_crime_report(toxic_prompt: str) -> str:
@@ -854,6 +862,7 @@ def past_tense_with_crime_report(toxic_prompt: str) -> str:
     print(f"[Final] 最优 SR = {best_sr}，返回最佳 prompt")
     return best_prompt if best_prompt else toxic_prompt
 
+
 # crime_map =  load_attack_logs("past_tense_crime_log.jsonl")
 def past_tense_with_crime_report_v2(toxic_prompt: str) -> str:
     # record = past_tense_map.get(toxic_prompt)
@@ -902,6 +911,7 @@ def past_tense_with_crime_report_v2(toxic_prompt: str) -> str:
         _append_to_log("past_tense_crime_v2_log.jsonl", log_record)
         return pt_prompt
 
+
 def past_tense_with_targeted_rescue(toxic_prompt: str) -> str:
     # record = past_tense_map.get(toxic_prompt)
     # pt_sr = float(record.get("best_sr"))
@@ -949,95 +959,52 @@ def past_tense_with_targeted_rescue(toxic_prompt: str) -> str:
         _append_to_log("past_tense_crime_v2_log.jsonl", log_record)
         return pt_prompt
 
+
 # ── 三阶段组合接口（PAP + Safe2Harm + PastTense）──────────────────────────────────
 
 def _is_valid_prompt(text) -> bool:
     """统一的有效性判断：非 None、非纯空白，全函数复用同一标准"""
     return text is not None and str(text).strip() != ""
 
-# def pap_safe2harm_past_tense_attack(toxic_prompt: str) -> str:
-#     """
-#             三阶段 fallback：
-#               Stage 1 — PAP（覆盖 ~82% prompt）
-#               Stage 2 — Safe2Harm Stage 1
-#               Stage 3 — Past Tense
-#         """
-#
-#     # PAP
-#     pap_best, pap_sr = persuasive_attack_best(toxic_prompt)
-#     print(f"[Stage 1 PAP] SR={pap_sr}")
-#     if pap_sr == 1.0 and _is_valid_prompt(pap_best):
-#         return pap_best
-#
-#     # Safe2Harm
-#     safe_q = safe2harm_rewrite(toxic_prompt)
-#     safe_sr = get_safety_score(safe_q) if _is_valid_prompt(safe_q) else 0.0
-#     print(f"[Stage 2 Safe2Harm] SR={safe_sr}")
-#     if safe_sr == 1.0 and _is_valid_prompt(safe_q):
-#         return safe_q
-#
-#     # PastTense
-#     pt_prompt = reformulate_past_tense(toxic_prompt)
-#     pt_sr = get_safety_score(pt_prompt) if _is_valid_prompt(pt_prompt) else 0.0
-#     print(f"[Stage 3 PastTense] SR={pt_sr}")
-#
-#     candidates = [
-#         (pap_best, pap_sr),
-#         (safe_q, safe_sr),
-#         (pt_prompt, pt_sr),
-#     ]
-#
-#     valid_candidates = [
-#         (prompt, sr) for prompt, sr in candidates if _is_valid_prompt(prompt)
-#     ]
-#
-#     if not valid_candidates:
-#         best_prompt, best_sr = toxic_prompt, -1.0
-#     else:
-#         best_prompt, best_sr = max(valid_candidates, key=lambda x: x[1])
-#
-#     return best_prompt
-
-pap_safe2harm_map = load_attack_logs("pap_safe2harm_attack_log.jsonl")
-past_tense_map = load_attack_logs("past_tense_log.jsonl")
 
 def pap_safe2harm_past_tense_attack(toxic_prompt: str) -> str:
-    record = pap_safe2harm_map.get(toxic_prompt)
-    stageA_sr = float(record.get("stageA_sr"))
-    stageA_prompt = record.get("stageA_prompt")
+    """
+            三阶段 fallback：
+              Stage 1 — PAP（覆盖 ~82% prompt）
+              Stage 2 — Safe2Harm Stage 1
+              Stage 3 — Past Tense
+        """
 
-    stageB_sr_raw = record.get("stageB_sr")
-    stageB_sr = float(stageB_sr_raw) if stageB_sr_raw is not None else 0.0
-    stageB_prompt = record.get("stageB_prompt")
+    # PAP
+    pap_best, pap_sr = persuasive_attack_best(toxic_prompt)
+    print(f"[Stage 1 PAP] SR={pap_sr}")
+    if pap_sr == 1.0 and _is_valid_prompt(pap_best):
+        return pap_best
 
-    if stageA_sr == 1.0 and _is_valid_prompt(stageA_prompt):
-        print(f"Found best prompt stageA_prompt = {stageA_prompt[:100]}...")  # truncate
-        return stageA_prompt
+    # Safe2Harm
+    safe_q = safe2harm_rewrite(toxic_prompt)
+    safe_sr = get_safety_score(safe_q) if _is_valid_prompt(safe_q) else 0.0
+    print(f"[Stage 2 Safe2Harm] SR={safe_sr}")
+    if safe_sr == 1.0 and _is_valid_prompt(safe_q):
+        return safe_q
 
-    if stageB_sr == 1.0 and _is_valid_prompt(stageB_prompt):
-        print(f"Found best prompt stageB_prompt = {stageB_prompt[:100]}...")  # truncate
-        return stageB_prompt
-
-    record = past_tense_map.get(toxic_prompt)
-    pt_sr = float(record.get("best_sr"))
-    pt_prompt = record.get("best_prompt")
+    # PastTense
+    pt_prompt = reformulate_past_tense(toxic_prompt)
+    pt_sr = get_safety_score(pt_prompt) if _is_valid_prompt(pt_prompt) else 0.0
+    print(f"[Stage 3 PastTense] SR={pt_sr}")
 
     candidates = [
-        (stageA_prompt, stageA_sr),
-        (stageB_prompt, stageB_sr),
+        (pap_best, pap_sr),
+        (safe_q, safe_sr),
         (pt_prompt, pt_sr),
     ]
 
-    # 过滤掉 prompt 为 None 或空字符串的候选
     valid_candidates = [
-        (prompt, sr) for prompt, sr in candidates
-        if prompt is not None and str(prompt).strip() != ""
+        (prompt, sr) for prompt, sr in candidates if _is_valid_prompt(prompt)
     ]
 
     if not valid_candidates:
-        # 全部无效时的兜底处理
-        best_prompt = toxic_prompt  # 或 None，根据业务需求
-        best_sr = -1.0
+        best_prompt, best_sr = toxic_prompt, -1.0
     else:
         best_prompt, best_sr = max(valid_candidates, key=lambda x: x[1])
 
