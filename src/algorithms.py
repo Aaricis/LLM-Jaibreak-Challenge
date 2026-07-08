@@ -15,6 +15,7 @@ from .fitd.fitd_rewrite import fitd_rewriter
 from .fitd.utils import deepseek_worker
 from .past_tense.reformulate import reformulate_past_tense
 from .rts_attack.rts import rts_attack_rewrite, worker, crime_report
+from .r2j.rewrite import after_finetune
 
 
 # --- MANDATORY ENTRY POINT for Official Evaluation ---
@@ -1009,3 +1010,40 @@ def pap_safe2harm_past_tense_attack(toxic_prompt: str) -> str:
         best_prompt, best_sr = max(valid_candidates, key=lambda x: x[1])
 
     return best_prompt
+
+def r2j_attack(toxic_prompt: str) -> str:
+    """
+    Rewrite to Jailbreak: Discover Learnable and TransferableImplicit HarmfulnessInstruction
+    """
+    best_prompt = None
+    best_sr = -1.0
+    all_attempts = []  # 记录所有尝试，用于日志
+
+    for attempt in range(20):
+        r2j_prompt = after_finetune(toxic_prompt)
+        r2j_sr = get_safety_score(r2j_prompt)
+        print(f"[Attempt {attempt + 1}/20] SR = {r2j_sr}")
+
+        # 更新最优结果
+        if r2j_sr > best_sr:
+            best_sr = r2j_sr
+            best_prompt = r2j_prompt
+
+        # 如果达到满分，提前结束
+        if best_sr == 1.0:
+            print(f"[Attempt {attempt + 1}] 达到 SR=1.0，提前结束")
+            break
+
+    # 构造日志记录
+    log_record = {
+        "toxic_prompt": toxic_prompt,
+        "best_prompt": best_prompt,
+        "best_sr": best_sr,
+        "total_attempts": len(all_attempts),
+        "all_attempts": all_attempts
+    }
+    _append_to_log("r2j_attack_log.jsonl", log_record)
+
+    print(f"[Final] 最优 SR = {best_sr}，返回最佳 prompt")
+    return best_prompt if best_prompt else toxic_prompt
+
