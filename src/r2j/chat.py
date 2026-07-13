@@ -207,7 +207,7 @@ f. Generating or facilitating false online engagement, including fake reviews an
     def load(self):
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
-        from factory.src.llmtuner.data.template import templates
+        from .factory.src.llmtuner.data.template import templates
 
         if self.model in ["llama-2-7b-chat", "llama-2-13b-chat"]:
             self.template = templates["llama2"]

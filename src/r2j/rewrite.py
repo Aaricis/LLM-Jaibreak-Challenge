@@ -3,8 +3,8 @@
 # ADAPTER_SUBDIR = "AdvBench_llama-2-7b-chat/step_20"
 
 
-from chat import Chat
-from prompt import chat_template, rewrite
+from .chat import Chat
+from .prompt import chat_template, rewrite
 
 cfg = {
     "model": {

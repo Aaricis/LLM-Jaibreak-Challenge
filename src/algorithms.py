@@ -336,7 +336,7 @@ ALL_TECHNIQUES = [
 ]
 
 guard_model_path = "/root/autodl-tmp/LLM-Jaibreak-Challenge/models/Qwen3Guard-Gen-0.6B"
-initialize_guard(guard_model_path)
+# initialize_guard(guard_model_path)
 
 
 def persuasive_attack_multi(toxic_prompt: str) -> str:
@@ -720,10 +720,10 @@ def past_tense_attack(toxic_prompt: str) -> str:
     best_sr = -1.0
     all_attempts = []  # 记录所有尝试，用于日志
 
-    for attempt in range(20):
+    for attempt in range(10):
         past_tense_prompt = reformulate_past_tense(toxic_prompt)
         pt_sr = get_safety_score(past_tense_prompt)
-        print(f"[Attempt {attempt + 1}/20] SR = {pt_sr}")
+        print(f"[Attempt {attempt + 1}/10] SR = {pt_sr}")
 
         # 记录本次尝试
         attempt_record = {
