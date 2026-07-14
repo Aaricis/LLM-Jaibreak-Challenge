@@ -15,7 +15,8 @@ from .fitd.fitd_rewrite import fitd_rewriter
 from .fitd.utils import deepseek_worker
 from .past_tense.reformulate import reformulate_past_tense
 from .rts_attack.rts import rts_attack_rewrite, worker, crime_report
-from .r2j.rewrite import after_finetune
+# from .r2j.rewrite import after_finetune
+from .xJailbreak.rewrite import rewrite_with_template
 
 
 # --- MANDATORY ENTRY POINT for Official Evaluation ---
@@ -336,6 +337,8 @@ ALL_TECHNIQUES = [
 ]
 
 guard_model_path = "/root/autodl-tmp/LLM-Jaibreak-Challenge/models/Qwen3Guard-Gen-0.6B"
+
+
 # initialize_guard(guard_model_path)
 
 
@@ -1011,39 +1014,72 @@ def pap_safe2harm_past_tense_attack(toxic_prompt: str) -> str:
 
     return best_prompt
 
-def r2j_attack(toxic_prompt: str) -> str:
-    """
-    Rewrite to Jailbreak: Discover Learnable and TransferableImplicit HarmfulnessInstruction
-    """
+
+# def r2j_attack(toxic_prompt: str) -> str:
+#     """
+#     Rewrite to Jailbreak: Discover Learnable and TransferableImplicit HarmfulnessInstruction
+#     """
+#     best_prompt = None
+#     best_sr = -1.0
+#     all_attempts = []  # 记录所有尝试，用于日志
+#
+#     for attempt in range(20):
+#         r2j_prompt = after_finetune(toxic_prompt)
+#         r2j_sr = get_safety_score(r2j_prompt)
+#         print(f"[Attempt {attempt + 1}/20] SR = {r2j_sr}")
+#
+#         # 更新最优结果
+#         if r2j_sr > best_sr:
+#             best_sr = r2j_sr
+#             best_prompt = r2j_prompt
+#
+#         # 如果达到满分，提前结束
+#         if best_sr == 1.0:
+#             print(f"[Attempt {attempt + 1}] 达到 SR=1.0，提前结束")
+#             break
+#
+#     # 构造日志记录
+#     log_record = {
+#         "toxic_prompt": toxic_prompt,
+#         "best_prompt": best_prompt,
+#         "best_sr": best_sr,
+#         "total_attempts": len(all_attempts),
+#         "all_attempts": all_attempts
+#     }
+#     _append_to_log("r2j_attack_log.jsonl", log_record)
+#
+#     print(f"[Final] 最优 SR = {best_sr}，返回最佳 prompt")
+#     return best_prompt if best_prompt else toxic_prompt
+
+def xJailbreak_attack(toxic_prompt: str) -> str:
+    prompts = rewrite_with_template(toxic_prompt)
+
+    # 评估每个 prompt 的安全评分，选择评分最高的
     best_prompt = None
-    best_sr = -1.0
-    all_attempts = []  # 记录所有尝试，用于日志
+    best_score = -float('inf')
+    best_index = -1
 
-    for attempt in range(20):
-        r2j_prompt = after_finetune(toxic_prompt)
-        r2j_sr = get_safety_score(r2j_prompt)
-        print(f"[Attempt {attempt + 1}/20] SR = {r2j_sr}")
+    for i, prompt in enumerate(prompts):
+        score = get_safety_score(prompt)
 
-        # 更新最优结果
-        if r2j_sr > best_sr:
-            best_sr = r2j_sr
-            best_prompt = r2j_prompt
+        if score > best_score:
+            best_score = score
+            best_prompt = prompt
+            best_index = i
 
         # 如果达到满分，提前结束
-        if best_sr == 1.0:
-            print(f"[Attempt {attempt + 1}] 达到 SR=1.0，提前结束")
+        if best_score == 1.0:
+            print("达到 SR=1.0，提前结束")
             break
 
     # 构造日志记录
     log_record = {
         "toxic_prompt": toxic_prompt,
         "best_prompt": best_prompt,
-        "best_sr": best_sr,
-        "total_attempts": len(all_attempts),
-        "all_attempts": all_attempts
+        "best_sr": best_score,
+        "template_idx": best_index
     }
-    _append_to_log("r2j_attack_log.jsonl", log_record)
+    _append_to_log("xJailbreak_attack_log.jsonl", log_record)
 
-    print(f"[Final] 最优 SR = {best_sr}，返回最佳 prompt")
+    print(f"[Final] 最优 SR = {best_score}，返回最佳 prompt")
     return best_prompt if best_prompt else toxic_prompt
-
