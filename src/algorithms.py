@@ -16,7 +16,9 @@ from .fitd.utils import deepseek_worker
 from .past_tense.reformulate import reformulate_past_tense
 from .rts_attack.rts import rts_attack_rewrite, worker, crime_report
 # from .r2j.rewrite import after_finetune
-from .xJailbreak.rewrite import rewrite_with_template
+# from .xJailbreak.rewrite import rewrite_with_template
+from .knowledge_to_jailbreak.knowledge_generator import generate_response
+from .knowledge_to_jailbreak.prompt_generator import jailbreak_generator_rewrite
 
 
 # --- MANDATORY ENTRY POINT for Official Evaluation ---
@@ -1051,124 +1053,132 @@ def pap_safe2harm_past_tense_attack(toxic_prompt: str) -> str:
 #     print(f"[Final] 最优 SR = {best_sr}，返回最佳 prompt")
 #     return best_prompt if best_prompt else toxic_prompt
 
-def xJailbreak_attack(toxic_prompt: str) -> str:
+# def xJailbreak_attack(toxic_prompt: str) -> str:
+#     """
+#     使用 10 个 template 依次生成改写 prompt，
+#     每个 template 可能生成多个候选，选择安全评分最高的返回。
+#     """
+#     NUM_TEMPLATES = 10
+#     LOG_FILE = "xJailbreak_attack_log.jsonl"
+#
+#     best_prompt = None
+#     best_score = -float('inf')
+#     best_index = -1
+#     best_sub_index = -1  # 记录是 list 中的第几个
+#
+#     all_results = []
+#
+#     for i in range(NUM_TEMPLATES):
+#         try:
+#             # 返回 list[str]
+#             prompts = rewrite_with_template(toxic_prompt, i)
+#
+#             # 确保是 list
+#             if isinstance(prompts, str):
+#                 prompts = [prompts]
+#
+#             # 遍历每个候选 prompt
+#             for j, prompt in enumerate(prompts):
+#                 score = get_safety_score(prompt)
+#
+#                 result = {
+#                     "template_idx": i,
+#                     "sub_idx": j,
+#                     "prompt": prompt,
+#                     "score": score
+#                 }
+#                 all_results.append(result)
+#
+#                 # 更新最优
+#                 if score > best_score:
+#                     best_score = score
+#                     best_prompt = prompt
+#                     best_index = i
+#                     best_sub_index = j
+#
+#                 # 满分提前结束
+#                 if best_score == 1.0:
+#                     print(f"[Early Stop] template_{i}, sub_{j} 达到 SR=1.0，提前结束")
+#                     break
+#
+#             # 如果已经满分，外层循环也结束
+#             if best_score == 1.0:
+#                 break
+#
+#         except Exception as e:
+#             print(f"[Error] template_{i} 处理失败: {e}")
+#             all_results.append({
+#                 "template_idx": i,
+#                 "error": str(e)
+#             })
+#             continue
+#
+#     # 日志记录
+#     log_record = {
+#         "toxic_prompt": toxic_prompt,
+#         "best_prompt": best_prompt,
+#         "best_sr": best_score,
+#         "best_template_idx": best_index,
+#         "best_sub_idx": best_sub_index,
+#         "all_results": all_results,
+#         "num_attempted": len(all_results)
+#     }
+#     _append_to_log(LOG_FILE, log_record)
+#
+#     print(f"[Final] 最优 SR = {best_score} (template_{best_index}, sub_{best_sub_index})")
+#
+#     return best_prompt if best_prompt is not None else toxic_prompt
+#
+#
+# # ── 三阶段组合接口（PAP + Safe2Harm + xJailbreak）──────────────────────────────────
+#
+# def pap_safe2harm_xjailbreak_attack(toxic_prompt: str) -> str:
+#     """
+#                 三阶段 fallback：
+#                   Stage 1 — PAP（覆盖 ~82% prompt）
+#                   Stage 2 — Safe2Harm Stage 1
+#                   Stage 3 — xJailbreak
+#     """
+#     # PAP
+#     pap_best, pap_sr = persuasive_attack_best(toxic_prompt)
+#     print(f"[Stage 1 PAP] SR={pap_sr}")
+#     if pap_sr == 1.0 and _is_valid_prompt(pap_best):
+#         return pap_best
+#
+#     # Safe2Harm
+#     safe_q = safe2harm_rewrite(toxic_prompt)
+#     safe_sr = get_safety_score(safe_q) if _is_valid_prompt(safe_q) else 0.0
+#     print(f"[Stage 2 Safe2Harm] SR={safe_sr}")
+#     if safe_sr == 1.0 and _is_valid_prompt(safe_q):
+#         return safe_q
+#
+#     # xJailbreak
+#     xj_prompt = xJailbreak_attack(toxic_prompt)
+#     xj_sr = get_safety_score(xj_prompt) if _is_valid_prompt(xj_prompt) else 0.0
+#     print(f"[Stage 3 xJailbreak] SR={xj_sr}")
+#
+#     candidates = [
+#         (pap_best, pap_sr),
+#         (safe_q, safe_sr),
+#         (xj_prompt, xj_sr),
+#     ]
+#
+#     valid_candidates = [
+#         (prompt, sr) for prompt, sr in candidates if _is_valid_prompt(prompt)
+#     ]
+#
+#     if not valid_candidates:
+#         best_prompt, best_sr = toxic_prompt, -1.0
+#     else:
+#         best_prompt, best_sr = max(valid_candidates, key=lambda x: x[1])
+#
+#     return best_prompt
+
+def knowledge_to_attack(toxic_prompt: str) -> str:
     """
-    使用 10 个 template 依次生成改写 prompt，
-    每个 template 可能生成多个候选，选择安全评分最高的返回。
+    toxic prompt -> knowledge -> prompt
     """
-    NUM_TEMPLATES = 10
-    LOG_FILE = "xJailbreak_attack_log.jsonl"
-
-    best_prompt = None
-    best_score = -float('inf')
-    best_index = -1
-    best_sub_index = -1  # 记录是 list 中的第几个
-
-    all_results = []
-
-    for i in range(NUM_TEMPLATES):
-        try:
-            # 返回 list[str]
-            prompts = rewrite_with_template(toxic_prompt, i)
-
-            # 确保是 list
-            if isinstance(prompts, str):
-                prompts = [prompts]
-
-            # 遍历每个候选 prompt
-            for j, prompt in enumerate(prompts):
-                score = get_safety_score(prompt)
-
-                result = {
-                    "template_idx": i,
-                    "sub_idx": j,
-                    "prompt": prompt,
-                    "score": score
-                }
-                all_results.append(result)
-
-                # 更新最优
-                if score > best_score:
-                    best_score = score
-                    best_prompt = prompt
-                    best_index = i
-                    best_sub_index = j
-
-                # 满分提前结束
-                if best_score == 1.0:
-                    print(f"[Early Stop] template_{i}, sub_{j} 达到 SR=1.0，提前结束")
-                    break
-
-            # 如果已经满分，外层循环也结束
-            if best_score == 1.0:
-                break
-
-        except Exception as e:
-            print(f"[Error] template_{i} 处理失败: {e}")
-            all_results.append({
-                "template_idx": i,
-                "error": str(e)
-            })
-            continue
-
-    # 日志记录
-    log_record = {
-        "toxic_prompt": toxic_prompt,
-        "best_prompt": best_prompt,
-        "best_sr": best_score,
-        "best_template_idx": best_index,
-        "best_sub_idx": best_sub_index,
-        "all_results": all_results,
-        "num_attempted": len(all_results)
-    }
-    _append_to_log(LOG_FILE, log_record)
-
-    print(f"[Final] 最优 SR = {best_score} (template_{best_index}, sub_{best_sub_index})")
-
-    return best_prompt if best_prompt is not None else toxic_prompt
-
-
-# ── 三阶段组合接口（PAP + Safe2Harm + xJailbreak）──────────────────────────────────
-
-def pap_safe2harm_xjailbreak_attack(toxic_prompt: str) -> str:
-    """
-                三阶段 fallback：
-                  Stage 1 — PAP（覆盖 ~82% prompt）
-                  Stage 2 — Safe2Harm Stage 1
-                  Stage 3 — xJailbreak
-    """
-    # PAP
-    pap_best, pap_sr = persuasive_attack_best(toxic_prompt)
-    print(f"[Stage 1 PAP] SR={pap_sr}")
-    if pap_sr == 1.0 and _is_valid_prompt(pap_best):
-        return pap_best
-
-    # Safe2Harm
-    safe_q = safe2harm_rewrite(toxic_prompt)
-    safe_sr = get_safety_score(safe_q) if _is_valid_prompt(safe_q) else 0.0
-    print(f"[Stage 2 Safe2Harm] SR={safe_sr}")
-    if safe_sr == 1.0 and _is_valid_prompt(safe_q):
-        return safe_q
-
-    # xJailbreak
-    xj_prompt = xJailbreak_attack(toxic_prompt)
-    xj_sr = get_safety_score(xj_prompt) if _is_valid_prompt(xj_prompt) else 0.0
-    print(f"[Stage 3 xJailbreak] SR={xj_sr}")
-
-    candidates = [
-        (pap_best, pap_sr),
-        (safe_q, safe_sr),
-        (xj_prompt, xj_sr),
-    ]
-
-    valid_candidates = [
-        (prompt, sr) for prompt, sr in candidates if _is_valid_prompt(prompt)
-    ]
-
-    if not valid_candidates:
-        best_prompt, best_sr = toxic_prompt, -1.0
-    else:
-        best_prompt, best_sr = max(valid_candidates, key=lambda x: x[1])
-
-    return best_prompt
+    knowledge = generate_response(toxic_prompt)
+    prompt  = jailbreak_generator_rewrite(knowledge)
+    return prompt
 
