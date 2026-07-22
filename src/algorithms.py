@@ -17,7 +17,7 @@ from .past_tense.reformulate import reformulate_past_tense
 from .rts_attack.rts import rts_attack_rewrite, worker, crime_report
 # from .r2j.rewrite import after_finetune
 # from .xJailbreak.rewrite import rewrite_with_template
-from .knowledge_to_jailbreak.knowledge_generator import generate_response
+from .knowledge_to_jailbreak.knowledge_generator import generate_knowledge
 from .knowledge_to_jailbreak.prompt_generator import jailbreak_generator_rewrite
 
 
@@ -1178,7 +1178,7 @@ def knowledge_to_attack(toxic_prompt: str) -> str:
     """
     toxic prompt -> knowledge -> prompt
     """
-    knowledge = generate_response(toxic_prompt)
+    knowledge = generate_knowledge(toxic_prompt)
     prompt  = jailbreak_generator_rewrite(knowledge)
     return prompt
 
