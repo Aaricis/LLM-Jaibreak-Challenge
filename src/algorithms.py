@@ -1179,6 +1179,6 @@ def knowledge_to_attack(toxic_prompt: str) -> str:
     toxic prompt -> knowledge -> prompt
     """
     knowledge = generate_knowledge(toxic_prompt)
-    prompt  = jailbreak_generator_rewrite(knowledge)
-    return prompt
+    prompt = jailbreak_generator_rewrite(knowledge)
+    return prompt if prompt and str(prompt).strip() else toxic_prompt
 

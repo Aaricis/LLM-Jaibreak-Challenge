@@ -35,6 +35,66 @@ Topic: {topic}
 
 Encyclopedia entry (3-5 sentences only, then stop):"""
 
+import re
+
+PREAMBLE_PATTERNS = [
+    r"^Sure,?\s+I('d| would| can| am)?\s+be?\s+(happy|glad|pleased|delighted)?\s*(to help|to assist).*?\n+",
+    r"^Sure,?\s+I\s+can\s+help.*?\n+",
+    r"^Certainly[!,]?.*?\n+",
+    r"^Of course[!,]?.*?\n+",
+    r"^I('d| would)\s+(be happy|love|be glad)\s+to.*?\n+",
+    r"^Here('s| is) (a|an|the|my).*?\n+",
+    r"^As (an|a) AI.*?\n+",
+]
+
+# 判断是否是拒绝/无效输出
+INVALID_OUTPUTS = [
+    "sure, i can help you with that",
+    "sure, i'd be happy",
+    "certainly!",
+    "certainly, here",
+    "i'd be happy to help",
+    "please provide me with",
+    "please let me know",
+]
+
+
+def _is_invalid_knowledge(text: str) -> bool:
+    """判断 knowledge 是否是无效输出（拒绝语或纯垃圾）"""
+    t = text.lower().strip()
+    if len(t.split()) < 15:
+        return True
+    return any(t.startswith(p) for p in INVALID_OUTPUTS)
+
+
+def _extract_encyclopedia_entry(raw_output: str) -> str:
+    """
+    从模型输出中提取百科描述。
+
+    处理两种错误模式：
+    1. 前缀垃圾："Sure, I can help...\n\n[实际内容]\nassistant\n[评论]"
+    2. 完全拒绝："Sure, I can help you with that."（无实质内容）
+    """
+    text = raw_output.strip()
+
+    # Step 1: 去掉 "assistant" 之后的自我评论（取前半部分）
+    if "assistant" in text:
+        parts = text.split("assistant")
+        text = parts[0].strip()
+
+    # Step 2: 去掉开头的 "Sure/Certainly" 等无意义前缀
+    for pattern in PREAMBLE_PATTERNS:
+        text = re.sub(pattern, "", text, flags=re.IGNORECASE | re.DOTALL).strip()
+
+    # Step 3: 去掉开头空行
+    text = text.strip()
+
+    # Step 4: 如果处理后内容太短，说明模型拒绝或没有实质输出
+    if len(text.split()) < 15:
+        return ""  # 明确返回空字符串，由调用方处理 fallback
+
+    return text
+
 
 def generate_knowledge(toxic_prompt: str, max_new_tokens: int = 512) -> str:
     prompt = KNOWLEDGE_PROMPT_TEMPLATE.format(topic=toxic_prompt)
@@ -53,6 +113,7 @@ def generate_knowledge(toxic_prompt: str, max_new_tokens: int = 512) -> str:
         max_new_tokens=max_new_tokens,
         do_sample=False,
         pad_token_id=tokenizer.eos_token_id,
+        # 不加 repetition_penalty（会破坏生成质量）
     )
 
     raw = tokenizer.decode(
@@ -60,47 +121,17 @@ def generate_knowledge(toxic_prompt: str, max_new_tokens: int = 512) -> str:
         skip_special_tokens=True
     ).strip()
 
+    print(f"[Row] {raw}")
+
     knowledge = _extract_encyclopedia_entry(raw)
+
+    # 二次验证：即使提取成功，也检查是否是无效内容
+    if _is_invalid_knowledge(knowledge):
+        print(f"  [WARN] knowledge 提取后仍为无效内容: {repr(knowledge[:80])}")
+        return ""
+
+    print(f"  [Knowledge] {knowledge}...")
     return knowledge
-
-
-def _extract_encyclopedia_entry(raw_output: str) -> str:
-    """
-    从模型的完整输出中提取百科描述部分。
-
-    模型的错误生成模式：
-    [百科描述（有效部分）] + "assistant" + [自我评论（需要丢弃）]
-
-    观察输出可知，"assistant" 这个 token 是 chat template 的角色标记，
-    它的出现标志着百科描述结束、模型开始自我评论。
-    """
-    # 策略 1: 以 "assistant" 作为分隔符，取前半部分
-    # 这个 token 是 Llama-3-Instruct 的 chat template 特有的角色标记
-    if "assistant" in raw_output:
-        entry = raw_output.split("assistant")[0].strip()
-        if len(entry.split()) >= 20:  # 至少 20 个词才算有效内容
-            return entry
-
-    # 策略 2: 找到"自我评论"的起始标志，截断到此处
-    # 常见的自我评论开头词组
-    COMMENT_STARTERS = [
-        "That looks great",
-        "Here's a minor suggestion",
-        "I hope this",
-        "Let me know",
-        "Feel free",
-        "Please note",
-        "Note that",
-        "I would suggest",
-    ]
-    for starter in COMMENT_STARTERS:
-        if starter in raw_output:
-            entry = raw_output[:raw_output.index(starter)].strip()
-            if len(entry.split()) >= 20:
-                return entry
-
-    # 策略 3: 兜底，返回原始输出
-    return raw_output
 
 
 if __name__ == "__main__":

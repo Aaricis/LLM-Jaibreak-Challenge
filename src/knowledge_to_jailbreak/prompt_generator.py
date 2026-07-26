@@ -31,27 +31,50 @@ MAX_LENGTH = 2048
 MAX_NEW_TOKENS = 512  # 关键修复 2：官方 64 太短，jailbreak prompt 通常需要更多 token
 
 
-# C 类：需要清洗的模板标记
-TEMPLATE_MARKERS = [
-    r"={3,}Template begins={3,}",
-    r"={3,}Template ends={3,}",
-    r"I hope this helps.*$",
-    r"Let me know if.*$",
-    r"Feel free to.*$",
-    r"Here's my attempt.*$",
-]
-
 def _clean_template_artifacts(text: str) -> str:
-    """清洗模板污染字符串"""
+    """
+    清洗模板污染字符串，提取核心内容。
+
+    输入格式：
+    [垃圾前缀] + "====Template begins====" + [核心内容] + "====Template ends===="
+
+    策略：
+    1. 如果存在 Template 标记，直接提取标记之间的内容（这才是核心内容）
+    2. 不存在 Template 标记时，清洗开头的垃圾前缀
+    """
     import re
-    # 如果包含 Template markers，截取到第一个 marker 之前
-    for marker in ["====Template begins====", "====Template ends===="]:
-        if marker in text:
-            text = text[:text.index(marker)].strip()
-    # 清洗结尾的礼貌语
-    for pattern in TEMPLATE_MARKERS:
-        text = re.sub(pattern, "", text, flags=re.DOTALL | re.IGNORECASE).strip()
+
+    BEGIN_MARKER = "====Template begins===="
+    END_MARKER = "====Template ends===="
+
+    # 策略 1: 存在完整的 Template 标记对 → 提取标记之间的内容
+    if BEGIN_MARKER in text and END_MARKER in text:
+        start = text.index(BEGIN_MARKER) + len(BEGIN_MARKER)
+        end = text.index(END_MARKER)
+        extracted = text[start:end].strip()
+        if len(extracted.split()) >= 10:
+            return extracted
+
+    # 策略 2: 只有 BEGIN 没有 END（内容被截断）→ 提取 BEGIN 之后的所有内容
+    if BEGIN_MARKER in text:
+        extracted = text[text.index(BEGIN_MARKER) + len(BEGIN_MARKER):].strip()
+        if len(extracted.split()) >= 10:
+            return extracted
+
+    # 策略 3: 没有 Template 标记 → 清洗开头的垃圾前缀
+    PREAMBLE_PATTERNS = [
+        r"^Sure,?\s+I('d| can| am)?\s*(be happy|help|assist).*?\n+",
+        r"^Sure,?\s+I\s+can\s+help.*?\n+",
+        r"^Certainly[!,]?.*?\n+",
+        r"^Here('s| is)\s+(a|an|the|my).*?\n+",
+        r"^I('d| would)\s+(be happy|love)\s+to.*?\n+",
+    ]
+    for pattern in PREAMBLE_PATTERNS:
+        text = re.sub(pattern, "", text,
+                      flags=re.IGNORECASE | re.DOTALL).strip()
+
     return text
+
 
 def jailbreak_generator_rewrite(knowledge: str) -> str:
     input_text = f"### Input:\n{knowledge}\n\n### Response:\n"
@@ -74,7 +97,7 @@ def jailbreak_generator_rewrite(knowledge: str) -> str:
             do_sample=False,
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
-            repetition_penalty=1.3,   # 修复 B 类：防止重复循环
+            repetition_penalty=1.3,  # 修复 B 类：防止重复循环
         )
 
     new_tokens = outputs[0][input_length:]
@@ -84,5 +107,3 @@ def jailbreak_generator_rewrite(knowledge: str) -> str:
     full_output = _clean_template_artifacts(full_output)
 
     return full_output
-
-
