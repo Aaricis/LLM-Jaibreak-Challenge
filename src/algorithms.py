@@ -1,3 +1,4 @@
+import json
 import random
 from textwrap import dedent
 
@@ -5,20 +6,21 @@ from .code_chameleon.attack import attack
 from .dr_attack.configs.template import general_template, wordgame_template, demo_suffix_template, test_prefixes
 from .dr_attack.ga_attack import DrAttack_random_search
 from .dr_attack.utils.GPTWrapper import worker
-from .fuzz_llm.construct_prompts import construct_rp_pe_oc
-from .persuasive.mutation_utils import persuasion_demo_mutation, persuasion_template
-from .rene_llm.renellm import rewrite_and_nest
-from .utils import initialize_guard, get_safety_score
-from .persona_prompts.build_prompts import persona_pap_attack, persuasive_attack_best
-from .safe2harm.semantic_isomorphism_attack import stage1_rewrite
 from .fitd.fitd_rewrite import fitd_rewriter
 from .fitd.utils import deepseek_worker
-from .past_tense.reformulate import reformulate_past_tense
-from .rts_attack.rts import rts_attack_rewrite, worker, crime_report
-# from .r2j.rewrite import after_finetune
-# from .xJailbreak.rewrite import rewrite_with_template
+from .fuzz_llm.construct_prompts import construct_rp_pe_oc
+from .hybrid_rag.rewriter import run_pipe
 from .knowledge_to_jailbreak.knowledge_generator import generate_knowledge
 from .knowledge_to_jailbreak.prompt_generator import jailbreak_generator_rewrite
+from .past_tense.reformulate import reformulate_past_tense
+from .persona_prompts.build_prompts import persona_pap_attack, persuasive_attack_best
+from .persuasive.mutation_utils import persuasion_demo_mutation, persuasion_template
+from .r2j.rewrite import after_finetune
+from .rene_llm.renellm import rewrite_and_nest
+from .rts_attack.rts import rts_attack_rewrite, worker, crime_report
+from .safe2harm.semantic_isomorphism_attack import stage1_rewrite
+from .utils import get_safety_score
+from .xJailbreak.rewrite import rewrite_with_template
 
 
 # --- MANDATORY ENTRY POINT for Official Evaluation ---
@@ -416,7 +418,6 @@ def safe2harm_rewrite(toxic_prompt: str) -> str:
     return safe_question
 
 
-import json
 from typing import Any
 
 TOXIC_PROMPT_TO_RECORD = {}
@@ -442,7 +443,7 @@ def load_attack_logs(file_path: str = "attack_logs.jsonl") -> dict[Any, Any]:
     return toxic_prompt_to_record
 
 
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple
 
 
 def get_stage1_prompt(toxic_prompt: str) -> Tuple[Optional[str], Optional[float]]:
@@ -496,68 +497,25 @@ def pap_safe2harm_attack(toxic_prompt: str, ) -> str:
     """
     # Stage A: PAP
 
-    # 直接从文件取
-    pap_best, pap_sr = get_stage1_prompt(toxic_prompt)
-
-    # Prepare log record (stage B fields initially empty)
-    log_record = {
-        "toxic_prompt": toxic_prompt,
-        "stageA_prompt": pap_best,
-        "stageA_sr": pap_sr,
-        "stageB_prompt": None,
-        "stageB_sr": None,
-        "final_prompt": None,
-        "final_sr": None
-    }
+    pap_best, pap_sr = persuasive_attack_best(toxic_prompt)
+    print(f"[PAP] best SR={pap_sr}")
 
     if pap_sr == 1.0:
-        print(f"Found pap prompt: {pap_best[:100]}...")  # truncate for display
-        log_record["final_prompt"] = pap_best
-        log_record["final_sr"] = pap_sr
-        _append_to_log(log_record)
+        print("[PAP] SR=1 达标，直接使用 PAP 结果")
         return pap_best
-    else:
-        print(f"No match or stage1_sr != 1.0 for: {toxic_prompt}")
-
-    # pap_best, pap_sr = persuasive_attack_best(toxic_prompt)
-    # print(f"[PAP] best SR={pap_sr}")
-    #
-    # if pap_sr == 1.0:
-    #     print("[PAP] SR=1 达标，直接使用 PAP 结果")
-    #     return pap_best
 
     # Stage B: Safe2Harm
     print(f"[Safe2Harm] PAP SR={pap_sr} 未达标，启动 Safe2Harm 改写...")
     safe_question = safe2harm_rewrite(toxic_prompt)
     safe_sr = get_safety_score(safe_question)
     print(f"[Safe2Harm] SR={safe_sr}")
-
-    # Fill stage B fields in log
-    log_record["stageB_prompt"] = safe_question
-    log_record["stageB_sr"] = safe_sr
-
     # 返回 SR 更高的版本
-    # if safe_sr >= pap_sr:
-    #     print(f"[Safe2Harm] SR 更高，使用 Safe2Harm 结果")
-    #     return safe_question
-    # else:
-    #     print(f"[PAP] PAP SR 更高，保留 PAP 结果")
-    #     return pap_best
-
-    # Decide which prompt to return (higher SR)
     if safe_sr >= pap_sr:
         print(f"[Safe2Harm] SR 更高，使用 Safe2Harm 结果")
-        final_prompt = safe_question
-        final_sr = safe_sr
+        return safe_question
     else:
         print(f"[PAP] PAP SR 更高，保留 PAP 结果")
-        final_prompt = pap_best
-        final_sr = pap_sr
-
-    log_record["final_prompt"] = final_prompt
-    log_record["final_sr"] = final_sr
-    _append_to_log(log_record)
-    return final_prompt
+        return pap_best
 
 
 def fitd_attack(toxic_prompt: str) -> str:
@@ -567,160 +525,50 @@ def fitd_attack(toxic_prompt: str) -> str:
 
 # ── 三阶段组合接口（PAP + Safe2Harm + FITD）──────────────────────────────────
 
-LOG_FILE = "fitd_attack_log.jsonl"
-
-# load_attack_logs("pap_safe2harm_attack_log.jsonl")
-
-from typing import Optional, Dict, Any
-
-
-def get_safe2harm_record(toxic_prompt: str) -> Optional[Dict[str, Any]]:
-    """
-    根据 toxic_prompt 查找并返回对应的完整 record 记录。
-
-    Args:
-        toxic_prompt: 原始有害问题
-
-    Returns:
-        完整的 record 字典（包含 final_prompt、final_sr 等所有字段），
-        未找到时返回 None
-    """
-    return TOXIC_PROMPT_TO_RECORD.get(toxic_prompt)
-
-
-def pap_safe2harm_fitd_attack(toxic_prompt: str) -> str:
+def pap_safe2harm_fitd_attack(toxic_prompt: str, ) -> str:
     """
     三阶段 fallback：
-      Stage 1 — PAP（覆盖 ~82% prompt）
-      Stage 2 — Safe2Harm Stage 1
-      Stage 3 — FITD with SSP + Re-Align（源代码模板）
+      Stage 1 — PAP
+      Stage 2 — Safe2Harm
+      Stage 3 — FITD
     """
+    # Stage 1: PAP
+    pap_best, pap_sr = persuasive_attack_best(toxic_prompt)
+    print(f"[Stage 1 PAP] SR={pap_sr}")
 
-    # 直接读取log
-    record = get_safe2harm_record(toxic_prompt)
-    stageA_sr = float(record.get("stageA_sr"))
-    stageA_prompt = record.get("stageA_prompt")
+    # Stage 2: Safe2Harm
+    safe_q, safe_sr = safe2harm_rewrite(toxic_prompt)
+    print(f"[Stage 2 Safe2Harm] SR={safe_sr}")
 
-    stageB_sr_raw = record.get("stageB_sr")
-    stageB_sr = float(stageB_sr_raw) if stageB_sr_raw is not None else 0.0
-    stageB_prompt = record.get("stageB_prompt")
-
-    if stageA_sr == 1.0 and stageA_prompt:
-        print(f"Found best prompt stageA_prompt = {stageA_prompt[:100]}...")  # truncate
-        return stageA_prompt
-
-    if stageB_sr == 1.0 and stageB_prompt:
-        print(f"Found best prompt stageB_prompt = {stageB_prompt[:100]}...")  # truncate
-        return stageB_prompt
-
-    # pap_best, pap_sr = persuasive_attack_best(toxic_prompt)
-    # print(f"[Stage 1 PAP] SR={pap_sr}")
-    # if pap_sr == 1.0:
-    #     return pap_best
-    #
-    # safe_q = safe2harm_rewrite(toxic_prompt)
-    # safe_sr = get_safety_score(safe_q)
-    # print(f"[Stage 2 Safe2Harm] SR={safe_sr}")
-    # if safe_sr == 1.0:
-    #     return safe_q
-
-    print(f"[Stage 3 FITD]，启动 FITD...")
-    fitd_result = fitd_rewriter(deepseek_worker, toxic_prompt, max_retries=3, max_ssp=2)
-    fitd_sr = get_safety_score(fitd_result)
+    # Stage 3: FITD
+    print(f"[Stage 3 FITD] PAP SR={pap_sr}, Safe2Harm SR={safe_sr}，启动 FITD...")
+    fitd_result, fitd_sr = fitd_rewriter(worker, toxic_prompt, max_retries=3, max_ssp=2)
     print(f"[Stage 3 FITD] SR={fitd_sr}")
 
+    # 收集所有候选，过滤无效 prompt
     candidates = [
-        (stageA_prompt, stageA_sr),
-        (stageB_prompt, stageB_sr),
+        (pap_best, pap_sr),
+        (safe_q, safe_sr),
         (fitd_result, fitd_sr),
     ]
 
-    # 过滤掉 prompt 为 None 或空字符串的候选
     valid_candidates = [
         (prompt, sr) for prompt, sr in candidates
         if prompt is not None and str(prompt).strip() != ""
     ]
 
     if not valid_candidates:
-        # 全部无效时的兜底处理
-        best_prompt = toxic_prompt  # 或 None，根据业务需求
-        best_sr = -1.0
-    else:
-        best_prompt, best_sr = max(valid_candidates, key=lambda x: x[1])
+        print("[Warning] 所有改写结果均为空，返回原始 toxic_prompt")
+        return toxic_prompt
 
-    log_record = {
-        "toxic_prompt": toxic_prompt,
-        "stageA_prompt": stageA_prompt,
-        "stageA_sr": stageA_sr,
-        "stageB_prompt": stageB_prompt,
-        "stageB_sr": stageB_sr,
-        "fitd_prompt": fitd_result,
-        "fitd_sr": fitd_sr,
-        "best_prompt": best_prompt,
-        "best_sr": best_sr
-    }
-    _append_to_log(log_record)
+    # 选择 SR 最高的有效候选
+    best_prompt, best_sr = max(valid_candidates, key=lambda x: x[1])
+    print(f"[Final] 选择 SR={best_sr} 的 prompt")
+
     return best_prompt
 
 
-# def pap_safe2harm_fitd_attack(toxic_prompt: str,) -> str:
-#     """
-#     三阶段 fallback：
-#       Stage 1 — PAP
-#       Stage 2 — Safe2Harm
-#       Stage 3 — FITD
-#     """
-#     # Stage 1: PAP
-#     pap_best, pap_sr = persuasive_attack_best(toxic_prompt)
-#     print(f"[Stage 1 PAP] SR={pap_sr}")
-#
-#     # Stage 2: Safe2Harm
-#     safe_q, safe_sr = safe2harm_rewrite(toxic_prompt)
-#     print(f"[Stage 2 Safe2Harm] SR={safe_sr}")
-#
-#     # Stage 3: FITD
-#     print(f"[Stage 3 FITD] PAP SR={pap_sr}, Safe2Harm SR={safe_sr}，启动 FITD...")
-#     fitd_result, fitd_sr = fitd_rewriter(worker, toxic_prompt, max_retries=3, max_ssp=2)
-#     print(f"[Stage 3 FITD] SR={fitd_sr}")
-#
-#     # 收集所有候选，过滤无效 prompt
-#     candidates = [
-#         (pap_best, pap_sr),
-#         (safe_q, safe_sr),
-#         (fitd_result, fitd_sr),
-#     ]
-#
-#     valid_candidates = [
-#         (prompt, sr) for prompt, sr in candidates
-#         if prompt is not None and str(prompt).strip() != ""
-#     ]
-#
-#     if not valid_candidates:
-#         print("[Warning] 所有改写结果均为空，返回原始 toxic_prompt")
-#         return toxic_prompt
-#
-#     # 选择 SR 最高的有效候选
-#     best_prompt, best_sr = max(valid_candidates, key=lambda x: x[1])
-#     print(f"[Final] 选择 SR={best_sr} 的 prompt")
-#
-#     return best_prompt
-
-
-# map1 = load_attack_logs("past_tense_log.jsonl")
-# map2 = load_attack_logs("past_tense_multi_log.jsonl")
-
 def past_tense_attack(toxic_prompt: str) -> str:
-    # if toxic_prompt in map2:
-    #     record = map2.get(toxic_prompt)
-    #     best_sr = float(record.get("best_sr"))
-    #     if best_sr == 1.0:
-    #         return record.get("best_prompt")
-    # elif toxic_prompt in map1:
-    #     record = map1.get(toxic_prompt)
-    #     pt_sr = float(record.get("pt_sr"))
-    #     if pt_sr == 1.0:
-    #         return record.get("past_tense_prompt")
-
     best_prompt = None
     best_sr = -1.0
     all_attempts = []  # 记录所有尝试，用于日志
@@ -747,16 +595,6 @@ def past_tense_attack(toxic_prompt: str) -> str:
         if best_sr == 1.0:
             print(f"[Attempt {attempt + 1}] 达到 SR=1.0，提前结束")
             break
-
-    # 构造日志记录
-    log_record = {
-        "toxic_prompt": toxic_prompt,
-        "best_prompt": best_prompt,
-        "best_sr": best_sr,
-        "total_attempts": len(all_attempts),
-        "all_attempts": all_attempts
-    }
-    # _append_to_log("past_tense_log.jsonl", log_record)
 
     print(f"[Final] 最优 SR = {best_sr}，返回最佳 prompt")
     return best_prompt if best_prompt else toxic_prompt
@@ -790,21 +628,10 @@ def rts_attack(toxic_prompt: str) -> str:
             print(f"[Attempt {attempt + 1}] 达到 SR=1.0，提前结束")
             break
 
-    # 构造日志记录
-    log_record = {
-        "toxic_prompt": toxic_prompt,
-        "best_prompt": best_prompt,
-        "best_sr": best_sr,
-        "total_attempts": len(all_attempts),
-        "all_attempts": all_attempts
-    }
-    _append_to_log("rts_attack_log.jsonl", log_record)
-
     print(f"[Final] 最优 SR = {best_sr}，返回最佳 prompt")
     return best_prompt if best_prompt else toxic_prompt
 
 
-# past_tense_map = load_attack_logs("past_tense_log.jsonl")
 def past_tense_with_crime_report(toxic_prompt: str) -> str:
     """
         思路:用 Past Tense 改写(已验证 relevance=0.57,信息零损耗)作为
@@ -816,13 +643,6 @@ def past_tense_with_crime_report(toxic_prompt: str) -> str:
         但用更"保细节"的方式构造素材。
     """
 
-    # record = past_tense_map.get(toxic_prompt)
-    # best_sr = float(record.get("best_sr"))
-    # past_tense = record.get("best_prompt")
-    # if best_sr == 1.0:
-    #     print("Using past tense prompt")
-    #     return past_tense
-
     # Step 1: 沿用已验证有效的 Past Tense 改写(不做任何抽象/提取)
     past_tense = reformulate_past_tense(toxic_prompt)
 
@@ -830,20 +650,11 @@ def past_tense_with_crime_report(toxic_prompt: str) -> str:
     # 而不是先提取出一个抽象 intent 再生成新闻
     best_prompt = None
     best_sr = -1.0
-    all_attempts = []  # 记录所有尝试，用于日志
 
     for attempt in range(20):
         past_tense_prompt = crime_report(past_tense, worker)
         pt_sr = get_safety_score(past_tense_prompt)
         print(f"[Attempt {attempt + 1}/20] SR = {pt_sr}")
-
-        # 记录本次尝试
-        attempt_record = {
-            "attempt": attempt + 1,
-            "past_tense_prompt": past_tense_prompt,
-            "pt_sr": pt_sr
-        }
-        all_attempts.append(attempt_record)
 
         # 更新最优结果
         if pt_sr > best_sr:
@@ -855,26 +666,11 @@ def past_tense_with_crime_report(toxic_prompt: str) -> str:
             print(f"[Attempt {attempt + 1}] 达到 SR=1.0，提前结束")
             break
 
-    # 构造日志记录
-    log_record = {
-        "toxic_prompt": toxic_prompt,
-        "best_prompt": best_prompt,
-        "best_sr": best_sr,
-        "total_attempts": len(all_attempts),
-        "all_attempts": all_attempts
-    }
-    _append_to_log("past_tense_crime_log.jsonl", log_record)
-
     print(f"[Final] 最优 SR = {best_sr}，返回最佳 prompt")
     return best_prompt if best_prompt else toxic_prompt
 
 
-# crime_map =  load_attack_logs("past_tense_crime_log.jsonl")
 def past_tense_with_crime_report_v2(toxic_prompt: str) -> str:
-    # record = past_tense_map.get(toxic_prompt)
-    # pt_sr = float(record.get("best_sr"))
-    # pt_prompt = record.get("best_prompt")
-
     pt_prompt = reformulate_past_tense(toxic_prompt)
     pt_sr = get_safety_score(pt_prompt) if pt_prompt else 0.0
 
@@ -889,80 +685,33 @@ def past_tense_with_crime_report_v2(toxic_prompt: str) -> str:
         _append_to_log("past_tense_crime_v2_log.jsonl", log_record)
         return pt_prompt
 
-    # record1 = crime_map.get(toxic_prompt)
-    # cr_prompt = record1.get("best_prompt")
-    # cr_sr = float(record1.get("best_sr"))
-
     cr_prompt = crime_report(toxic_prompt, worker)
     cr_sr = get_safety_score(cr_prompt) if cr_prompt else 0.0
 
     # 关键修复：取较优结果，而不是无条件用 CR 覆盖 PT
     if cr_sr >= pt_sr:
-        log_record = {
-            "toxic_prompt": toxic_prompt,
-            "best_prompt": cr_prompt,
-            "best_sr": cr_sr,
-            "source": "crime_report"
-        }
-        _append_to_log("past_tense_crime_v2_log.jsonl", log_record)
         return cr_prompt
 
     else:
-        log_record = {
-            "toxic_prompt": toxic_prompt,
-            "best_prompt": pt_prompt,
-            "best_sr": pt_sr,
-            "source": "past_tense"
-        }
-        _append_to_log("past_tense_crime_v2_log.jsonl", log_record)
         return pt_prompt
 
 
 def past_tense_with_targeted_rescue(toxic_prompt: str) -> str:
-    # record = past_tense_map.get(toxic_prompt)
-    # pt_sr = float(record.get("best_sr"))
-    # pt_prompt = record.get("best_prompt")
-
     pt_prompt = reformulate_past_tense(toxic_prompt)
     pt_sr = get_safety_score(pt_prompt) if pt_prompt else 0.0
 
     if pt_sr > 0.0:
         print("Using past tense prompt")
-        log_record = {
-            "toxic_prompt": toxic_prompt,
-            "best_prompt": pt_prompt,
-            "best_sr": pt_sr,
-            "source": "past_tense"
-        }
-        _append_to_log("past_tense_rescue_log.jsonl", log_record)
         return pt_prompt
-
-    # record1 = crime_map.get(toxic_prompt)
-    # cr_prompt = record1.get("best_prompt")
-    # cr_sr = float(record1.get("best_sr"))
 
     cr_prompt = crime_report(toxic_prompt, worker)
     cr_sr = get_safety_score(cr_prompt) if cr_prompt else 0.0
 
     # 关键修复：取较优结果，而不是无条件用 CR 覆盖 PT
     if cr_sr > pt_sr:
-        log_record = {
-            "toxic_prompt": toxic_prompt,
-            "best_prompt": cr_prompt,
-            "best_sr": cr_sr,
-            "source": "crime_report"
-        }
-        _append_to_log("past_tense_crime_v2_log.jsonl", log_record)
         return cr_prompt
 
     else:
-        log_record = {
-            "toxic_prompt": toxic_prompt,
-            "best_prompt": pt_prompt,
-            "best_sr": pt_sr,
-            "source": "past_tense"
-        }
-        _append_to_log("past_tense_crime_v2_log.jsonl", log_record)
         return pt_prompt
 
 
@@ -1017,162 +766,164 @@ def pap_safe2harm_past_tense_attack(toxic_prompt: str) -> str:
     return best_prompt
 
 
-# def r2j_attack(toxic_prompt: str) -> str:
-#     """
-#     Rewrite to Jailbreak: Discover Learnable and TransferableImplicit HarmfulnessInstruction
-#     """
-#     best_prompt = None
-#     best_sr = -1.0
-#     all_attempts = []  # 记录所有尝试，用于日志
-#
-#     for attempt in range(20):
-#         r2j_prompt = after_finetune(toxic_prompt)
-#         r2j_sr = get_safety_score(r2j_prompt)
-#         print(f"[Attempt {attempt + 1}/20] SR = {r2j_sr}")
-#
-#         # 更新最优结果
-#         if r2j_sr > best_sr:
-#             best_sr = r2j_sr
-#             best_prompt = r2j_prompt
-#
-#         # 如果达到满分，提前结束
-#         if best_sr == 1.0:
-#             print(f"[Attempt {attempt + 1}] 达到 SR=1.0，提前结束")
-#             break
-#
-#     # 构造日志记录
-#     log_record = {
-#         "toxic_prompt": toxic_prompt,
-#         "best_prompt": best_prompt,
-#         "best_sr": best_sr,
-#         "total_attempts": len(all_attempts),
-#         "all_attempts": all_attempts
-#     }
-#     _append_to_log("r2j_attack_log.jsonl", log_record)
-#
-#     print(f"[Final] 最优 SR = {best_sr}，返回最佳 prompt")
-#     return best_prompt if best_prompt else toxic_prompt
+def r2j_attack(toxic_prompt: str) -> str:
+    """
+    Rewrite to Jailbreak: Discover Learnable and TransferableImplicit HarmfulnessInstruction
+    """
+    best_prompt = None
+    best_sr = -1.0
+    all_attempts = []  # 记录所有尝试，用于日志
 
-# def xJailbreak_attack(toxic_prompt: str) -> str:
-#     """
-#     使用 10 个 template 依次生成改写 prompt，
-#     每个 template 可能生成多个候选，选择安全评分最高的返回。
-#     """
-#     NUM_TEMPLATES = 10
-#     LOG_FILE = "xJailbreak_attack_log.jsonl"
-#
-#     best_prompt = None
-#     best_score = -float('inf')
-#     best_index = -1
-#     best_sub_index = -1  # 记录是 list 中的第几个
-#
-#     all_results = []
-#
-#     for i in range(NUM_TEMPLATES):
-#         try:
-#             # 返回 list[str]
-#             prompts = rewrite_with_template(toxic_prompt, i)
-#
-#             # 确保是 list
-#             if isinstance(prompts, str):
-#                 prompts = [prompts]
-#
-#             # 遍历每个候选 prompt
-#             for j, prompt in enumerate(prompts):
-#                 score = get_safety_score(prompt)
-#
-#                 result = {
-#                     "template_idx": i,
-#                     "sub_idx": j,
-#                     "prompt": prompt,
-#                     "score": score
-#                 }
-#                 all_results.append(result)
-#
-#                 # 更新最优
-#                 if score > best_score:
-#                     best_score = score
-#                     best_prompt = prompt
-#                     best_index = i
-#                     best_sub_index = j
-#
-#                 # 满分提前结束
-#                 if best_score == 1.0:
-#                     print(f"[Early Stop] template_{i}, sub_{j} 达到 SR=1.0，提前结束")
-#                     break
-#
-#             # 如果已经满分，外层循环也结束
-#             if best_score == 1.0:
-#                 break
-#
-#         except Exception as e:
-#             print(f"[Error] template_{i} 处理失败: {e}")
-#             all_results.append({
-#                 "template_idx": i,
-#                 "error": str(e)
-#             })
-#             continue
-#
-#     # 日志记录
-#     log_record = {
-#         "toxic_prompt": toxic_prompt,
-#         "best_prompt": best_prompt,
-#         "best_sr": best_score,
-#         "best_template_idx": best_index,
-#         "best_sub_idx": best_sub_index,
-#         "all_results": all_results,
-#         "num_attempted": len(all_results)
-#     }
-#     _append_to_log(LOG_FILE, log_record)
-#
-#     print(f"[Final] 最优 SR = {best_score} (template_{best_index}, sub_{best_sub_index})")
-#
-#     return best_prompt if best_prompt is not None else toxic_prompt
-#
-#
+    for attempt in range(20):
+        r2j_prompt = after_finetune(toxic_prompt)
+        r2j_sr = get_safety_score(r2j_prompt)
+        print(f"[Attempt {attempt + 1}/20] SR = {r2j_sr}")
+
+        # 更新最优结果
+        if r2j_sr > best_sr:
+            best_sr = r2j_sr
+            best_prompt = r2j_prompt
+
+        # 如果达到满分，提前结束
+        if best_sr == 1.0:
+            print(f"[Attempt {attempt + 1}] 达到 SR=1.0，提前结束")
+            break
+
+    # 构造日志记录
+    log_record = {
+        "toxic_prompt": toxic_prompt,
+        "best_prompt": best_prompt,
+        "best_sr": best_sr,
+        "total_attempts": len(all_attempts),
+        "all_attempts": all_attempts
+    }
+    _append_to_log("r2j_attack_log.jsonl", log_record)
+
+    print(f"[Final] 最优 SR = {best_sr}，返回最佳 prompt")
+    return best_prompt if best_prompt else toxic_prompt
+
+
+def xJailbreak_attack(toxic_prompt: str) -> str:
+    """
+    使用 10 个 template 依次生成改写 prompt，
+    每个 template 可能生成多个候选，选择安全评分最高的返回。
+    """
+    NUM_TEMPLATES = 10
+    LOG_FILE = "xJailbreak_attack_log.jsonl"
+
+    best_prompt = None
+    best_score = -float('inf')
+    best_index = -1
+    best_sub_index = -1  # 记录是 list 中的第几个
+
+    all_results = []
+
+    for i in range(NUM_TEMPLATES):
+        try:
+            # 返回 list[str]
+            prompts = rewrite_with_template(toxic_prompt, i)
+
+            # 确保是 list
+            if isinstance(prompts, str):
+                prompts = [prompts]
+
+            # 遍历每个候选 prompt
+            for j, prompt in enumerate(prompts):
+                score = get_safety_score(prompt)
+
+                result = {
+                    "template_idx": i,
+                    "sub_idx": j,
+                    "prompt": prompt,
+                    "score": score
+                }
+                all_results.append(result)
+
+                # 更新最优
+                if score > best_score:
+                    best_score = score
+                    best_prompt = prompt
+                    best_index = i
+                    best_sub_index = j
+
+                # 满分提前结束
+                if best_score == 1.0:
+                    print(f"[Early Stop] template_{i}, sub_{j} 达到 SR=1.0，提前结束")
+                    break
+
+            # 如果已经满分，外层循环也结束
+            if best_score == 1.0:
+                break
+
+        except Exception as e:
+            print(f"[Error] template_{i} 处理失败: {e}")
+            all_results.append({
+                "template_idx": i,
+                "error": str(e)
+            })
+            continue
+
+    # 日志记录
+    log_record = {
+        "toxic_prompt": toxic_prompt,
+        "best_prompt": best_prompt,
+        "best_sr": best_score,
+        "best_template_idx": best_index,
+        "best_sub_idx": best_sub_index,
+        "all_results": all_results,
+        "num_attempted": len(all_results)
+    }
+    _append_to_log(LOG_FILE, log_record)
+
+    print(f"[Final] 最优 SR = {best_score} (template_{best_index}, sub_{best_sub_index})")
+
+    return best_prompt if best_prompt is not None else toxic_prompt
+
+
 # # ── 三阶段组合接口（PAP + Safe2Harm + xJailbreak）──────────────────────────────────
 #
-# def pap_safe2harm_xjailbreak_attack(toxic_prompt: str) -> str:
-#     """
-#                 三阶段 fallback：
-#                   Stage 1 — PAP（覆盖 ~82% prompt）
-#                   Stage 2 — Safe2Harm Stage 1
-#                   Stage 3 — xJailbreak
-#     """
-#     # PAP
-#     pap_best, pap_sr = persuasive_attack_best(toxic_prompt)
-#     print(f"[Stage 1 PAP] SR={pap_sr}")
-#     if pap_sr == 1.0 and _is_valid_prompt(pap_best):
-#         return pap_best
-#
-#     # Safe2Harm
-#     safe_q = safe2harm_rewrite(toxic_prompt)
-#     safe_sr = get_safety_score(safe_q) if _is_valid_prompt(safe_q) else 0.0
-#     print(f"[Stage 2 Safe2Harm] SR={safe_sr}")
-#     if safe_sr == 1.0 and _is_valid_prompt(safe_q):
-#         return safe_q
-#
-#     # xJailbreak
-#     xj_prompt = xJailbreak_attack(toxic_prompt)
-#     xj_sr = get_safety_score(xj_prompt) if _is_valid_prompt(xj_prompt) else 0.0
-#     print(f"[Stage 3 xJailbreak] SR={xj_sr}")
-#
-#     candidates = [
-#         (pap_best, pap_sr),
-#         (safe_q, safe_sr),
-#         (xj_prompt, xj_sr),
-#     ]
-#
-#     valid_candidates = [
-#         (prompt, sr) for prompt, sr in candidates if _is_valid_prompt(prompt)
-#     ]
-#
-#     if not valid_candidates:
-#         best_prompt, best_sr = toxic_prompt, -1.0
-#     else:
-#         best_prompt, best_sr = max(valid_candidates, key=lambda x: x[1])
-#
-#     return best_prompt
+def pap_safe2harm_xjailbreak_attack(toxic_prompt: str) -> str:
+    """
+                三阶段 fallback：
+                  Stage 1 — PAP（覆盖 ~82% prompt）
+                  Stage 2 — Safe2Harm Stage 1
+                  Stage 3 — xJailbreak
+    """
+    # PAP
+    pap_best, pap_sr = persuasive_attack_best(toxic_prompt)
+    print(f"[Stage 1 PAP] SR={pap_sr}")
+    if pap_sr == 1.0 and _is_valid_prompt(pap_best):
+        return pap_best
+
+    # Safe2Harm
+    safe_q = safe2harm_rewrite(toxic_prompt)
+    safe_sr = get_safety_score(safe_q) if _is_valid_prompt(safe_q) else 0.0
+    print(f"[Stage 2 Safe2Harm] SR={safe_sr}")
+    if safe_sr == 1.0 and _is_valid_prompt(safe_q):
+        return safe_q
+
+    # xJailbreak
+    xj_prompt = xJailbreak_attack(toxic_prompt)
+    xj_sr = get_safety_score(xj_prompt) if _is_valid_prompt(xj_prompt) else 0.0
+    print(f"[Stage 3 xJailbreak] SR={xj_sr}")
+
+    candidates = [
+        (pap_best, pap_sr),
+        (safe_q, safe_sr),
+        (xj_prompt, xj_sr),
+    ]
+
+    valid_candidates = [
+        (prompt, sr) for prompt, sr in candidates if _is_valid_prompt(prompt)
+    ]
+
+    if not valid_candidates:
+        best_prompt, best_sr = toxic_prompt, -1.0
+    else:
+        best_prompt, best_sr = max(valid_candidates, key=lambda x: x[1])
+
+    return best_prompt
+
 
 def knowledge_to_attack(toxic_prompt: str) -> str:
     """
@@ -1182,3 +933,52 @@ def knowledge_to_attack(toxic_prompt: str) -> str:
     prompt = jailbreak_generator_rewrite(knowledge)
     return prompt if prompt and str(prompt).strip() else toxic_prompt
 
+
+def hybrid_rag_attack(toxic_prompt: str) -> str:
+    return run_pipe(toxic_prompt)
+
+
+# ── 三阶段组合接口（PAP + Safe2Harm + hybrid rag）──────────────────────────────────
+
+
+def pap_safe2harm_hybridrag_attack(toxic_prompt: str) -> str:
+    """
+                    三阶段 fallback：
+                      Stage 1 — PAP（覆盖 ~82% prompt）
+                      Stage 2 — Safe2Harm Stage 1
+                      Stage 3 — hybrid rag
+    """
+    # PAP
+    pap_best, pap_sr = persuasive_attack_best(toxic_prompt)
+    print(f"[Stage 1 PAP] SR={pap_sr}")
+    if pap_sr == 1.0 and _is_valid_prompt(pap_best):
+        return pap_best
+
+    # Safe2Harm
+    safe_q = safe2harm_rewrite(toxic_prompt)
+    safe_sr = get_safety_score(safe_q) if _is_valid_prompt(safe_q) else 0.0
+    print(f"[Stage 2 Safe2Harm] SR={safe_sr}")
+    if safe_sr == 1.0 and _is_valid_prompt(safe_q):
+        return safe_q
+
+    # PastTense
+    hy_prompt = hybrid_rag_attack(toxic_prompt)
+    hy_sr = get_safety_score(hy_prompt) if _is_valid_prompt(hy_prompt) else 0.0
+    print(f"[Stage 3 PastTense] SR={hy_sr}")
+
+    candidates = [
+        (pap_best, pap_sr),
+        (safe_q, safe_sr),
+        (hy_prompt, hy_sr),
+    ]
+
+    valid_candidates = [
+        (prompt, sr) for prompt, sr in candidates if _is_valid_prompt(prompt)
+    ]
+
+    if not valid_candidates:
+        best_prompt, best_sr = toxic_prompt, -1.0
+    else:
+        best_prompt, best_sr = max(valid_candidates, key=lambda x: x[1])
+
+    return best_prompt
