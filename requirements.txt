@@ -1,8 +1,9 @@
-torch==2.8.0
-transformers==4.56.2
+torch==2.13.0+cu129
+transformers==5.14.1
 sentence-transformers==5.1.0
-python-dotenv==1.1.1
+python-dotenv==1.2.2
 accelerate==1.10.1
 gdown
 datasets==4.0.0
-tqdm==4.67.1
+tqdm==4.70.0
+vllm==0.23.1rc1.dev1458+ge222c33f2
