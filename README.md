@@ -5,6 +5,32 @@ This project hosts a coding challenge where participants design an agent that re
 The flow of the challenge can be illustrated below:
 ![](./src/flow-graph.png)
 
+## Results
+| 排名 | 攻击类型                           | 方法                                 | final\_acc | 相比Base提升 | weighted\_final\_acc | 相比Base提升（weighted） |
+| :--: | :--------------------------------- |:-----------------------------------| :--------: | :----------: | :------------------: | :----------------------: |
+|  ⭐🥇  | **Hybrid RAG** ⭐                   | **⭐ Hybrid RAG（原创）⭐**              | **0.8496** | **+916.9%**  |      **0.8440**      |       **+852.1%**        |
+|  🥈   | LLM Based Attack + Hybrid RAG      | PAP + Safe2Harm + Hybrid RAG       |   0.7314   |   +775.4%    |        0.7301        |         +723.6%          |
+|  🥉   | LLM Based Attack + RL Based Attack | PAP + Safe2Harm + xJailbreak       |   0.6941   |   +730.8%    |        0.6931        |         +681.9%          |
+|  4   | LLM Based Attack + Steganography   | PAP + Safe2Harm + Past tense       |   0.6889   |   +724.6%    |        0.6852        |         +673.0%          |
+|  5   | LLM Based Attack                   | PAP + Safe2Harm + Foot-In-The-Door |   0.6671   |   +698.5%    |        0.6636        |         +648.6%          |
+|  6   | LLM Based Attack                   | PAP + Safe2Harm                    |   0.6581   |   +687.7%    |        0.6594        |         +643.9%          |
+|  7   | LLM Based Attack                   | PAP (multiple attempts)            |   0.6414   |   +667.7%    |        0.6287        |         +609.2%          |
+|  8   | Fine-tuning                        | Fine-Tuning Only                   |   0.5681   |   +580.0%    |        0.5634        |         +535.6%          |
+|  9   | Template Attack                    | Multilayer obfuscation             |   0.5180   |   +520.0%    |        0.5109        |         +476.3%          |
+|  10  | Steganography                      | Past tense                         |   0.4897   |   +486.1%    |        0.4733        |         +433.9%          |
+|  —   | /                                  | Base (raw toxic prompts)           |   0.0835   |      —       |        0.0886        |            —             |
+
+详细实验过程和分析参见:
+- [我的博客](https://aaricis.github.io/posts/Jailbreak-Olympics-Building&Breaking-Safety-Systems/)
+- [知乎专栏](https://zhuanlan.zhihu.com/p/2075985201432359704)
+
+## Model & Dataset Download
+Fine-Tuned models and dataset can be downloaded from the following links.
+
+- [Jailbreak Prompt Rewriter Adapters](https://www.modelscope.cn/models/TaitaiPhu/Jailbreak_Prompt_Rewriter_Adapters)
+- [LLM越狱攻击数据集](https://www.modelscope.cn/datasets/TaitaiPhu/LLM_Jailbreak_Attack)
+
+
 ## 🚀 Setup and Installation
 ### 1\. Installation
 Clone this GitHub repo:
