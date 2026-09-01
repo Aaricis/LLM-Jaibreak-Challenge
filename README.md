@@ -32,7 +32,6 @@ Fine-Tuned models and dataset can be downloaded from the following links.
 - [LLM越狱攻击数据集](https://www.modelscope.cn/datasets/TaitaiPhu/LLM_Jailbreak_Attack)
 
 ## Overview
-📄 在线预览 
 
 https://github.com/user-attachments/assets/e8e22b20-b54d-402e-b31b-96a52a0f68ff
 
