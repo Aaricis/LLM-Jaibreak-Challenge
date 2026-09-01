@@ -30,8 +30,12 @@ Fine-Tuned models and dataset can be downloaded from the following links.
 - [Jailbreak Prompt Rewriter Adapters](https://www.modelscope.cn/models/TaitaiPhu/Jailbreak_Prompt_Rewriter_Adapters)
 - [LLM越狱攻击数据集](https://www.modelscope.cn/datasets/TaitaiPhu/LLM_Jailbreak_Attack)
 
+## Overview
+
+[📄 在线预览 ](https://github.com/Aaricis/LLM-Jailbreak-Challenge/blob/main/Report.pdf) | [📥 下载 ](https://github.com/Aaricis/LLM-Jailbreak-Challenge/blob/main/Report.pdf)
 
 ## 🚀 Setup and Installation
+
 ### 1\. Installation
 Clone this GitHub repo:
 ```
